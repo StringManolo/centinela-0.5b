@@ -15,6 +15,11 @@ on:
         description: 'Max test examples (empty = all)'
         required: false
         default: ''
+      convert_to_gguf:
+        description: 'Merge LoRA and convert to GGUF (slow, ~5-15 min)'
+        type: boolean
+        required: false
+        default: false
   push:
     branches: [main]
     paths:
@@ -42,7 +47,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: ${{ runner.os }}-hf-centinela-v1
+          key: ${{ runner.os }}-hf-centinela-v3
           restore-keys: |
             ${{ runner.os }}-hf-centinela-
 
@@ -68,7 +73,7 @@ jobs:
           if [ -z "$EPOCHS" ]; then EPOCHS="3"; fi
 
           python scripts/run_pipeline.py \
-            --base_model "huihui-ai/Qwen2.5-0.5B-Instruct-abliterated" \
+            --base_model "huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3" \
             --train_file "data/train.jsonl" \
             --test_file "data/test.jsonl" \
             --output_dir "./lora_adapter" \
@@ -76,9 +81,23 @@ jobs:
             --batch_size 1 \
             $EXTRA_ARGS
 
+      - name: Convert merged model to GGUF
+        if: ${{ github.event.inputs.convert_to_gguf == 'true' }}
+        run: bash scripts/convert_to_gguf.sh
+
       - name: Upload LoRA adapter and metrics
         uses: actions/upload-artifact@v4
         with:
           name: centinela-run-${{ github.run_id }}
           path: ./lora_adapter/
           if-no-files-found: error
+
+      - name: Upload GGUF files
+        if: ${{ github.event.inputs.convert_to_gguf == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-gguf-${{ github.run_id }}
+          path: |
+            ./centinela-0.5b-f16.gguf
+            ./centinela-0.5b-Q4_K_M.gguf
+          if-no-files-found: warn
