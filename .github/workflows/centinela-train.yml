@@ -1,0 +1,84 @@
+name: Fine-tune Centinela Security Specialist
+
+on:
+  workflow_dispatch:
+    inputs:
+      num_epochs:
+        description: 'Number of epochs (default: 3)'
+        required: false
+        default: '3'
+      max_train_examples:
+        description: 'Max training examples (empty = all)'
+        required: false
+        default: ''
+      max_test_examples:
+        description: 'Max test examples (empty = all)'
+        required: false
+        default: ''
+  push:
+    branches: [main]
+    paths:
+      - 'data/**'
+      - 'scripts/**'
+      - '.github/workflows/centinela-train.yml'
+
+jobs:
+  fine-tune-and-evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-centinela-v1
+          restore-keys: |
+            ${{ runner.os }}-hf-centinela-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run fine-tuning and evaluation pipeline
+        env:
+          HF_HOME: ~/.cache/huggingface
+          TOKENIZERS_PARALLELISM: "false"
+          OMP_NUM_THREADS: "4"
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ github.event.inputs.max_train_examples }}" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max_train_examples ${{ github.event.inputs.max_train_examples }}"
+          fi
+          if [ -n "${{ github.event.inputs.max_test_examples }}" ]; then
+            EXTRA_ARGS="$EXTRA_ARGS --max_test_examples ${{ github.event.inputs.max_test_examples }}"
+          fi
+          EPOCHS="${{ github.event.inputs.num_epochs }}"
+          if [ -z "$EPOCHS" ]; then EPOCHS="3"; fi
+
+          python scripts/run_pipeline.py \
+            --base_model "huihui-ai/Qwen2.5-0.5B-Instruct-abliterated" \
+            --train_file "data/train.jsonl" \
+            --test_file "data/test.jsonl" \
+            --output_dir "./lora_adapter" \
+            --num_epochs "$EPOCHS" \
+            --batch_size 1 \
+            $EXTRA_ARGS
+
+      - name: Upload LoRA adapter and metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-run-${{ github.run_id }}
+          path: ./lora_adapter/
+          if-no-files-found: error
