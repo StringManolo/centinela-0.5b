@@ -34,6 +34,56 @@ def extract_answer(text):
     return "UNKNOWN"
 
 
+def ensure_chat_template(tokenizer):
+    """
+    Some abliterated/heretic models lose `chat_template` during the ablation
+    process. If it's missing, inject the Qwen2.5 ChatML template, which is
+    compatible with the whole Qwen2/Qwen2.5 family.
+
+    For non-Qwen families (SmolLM2, Llama, etc.) this fallback will *not* be
+    correct. If the model is not Qwen and the template is missing, a warning
+    is printed and the run continues; the outputs may be degraded.
+    """
+    if getattr(tokenizer, "chat_template", None) is not None:
+        return
+
+    # Heuristic: is this a Qwen-family tokenizer?
+    name = getattr(tokenizer, "name_or_path", "").lower()
+    is_qwen = "qwen" in name
+
+    if is_qwen:
+        print("  -> tokenizer.chat_template is missing; injecting Qwen2.5 ChatML fallback")
+        tokenizer.chat_template = (
+            "{%- if messages[0]['role'] == 'system' -%}"
+            "{{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' -}}"
+            "{%- else -%}"
+            "{{- '<|im_start|>system\\nYou are a helpful assistant.<|im_end|>\\n' -}}"
+            "{%- endif -%}"
+            "{%- for message in messages -%}"
+            "{%- if message['role'] != 'system' -%}"
+            "{{- '<|im_start|>' + message['role'] + '\\n' + message['content'] + '<|im_end|>\\n' -}}"
+            "{%- endif -%}"
+            "{%- endfor -%}"
+            "{%- if add_generation_prompt -%}"
+            "{{- '<|im_start|>assistant\\n' -}}"
+            "{%- endif -%}"
+        )
+    else:
+        print(
+            "  -> WARNING: tokenizer.chat_template is missing and this is not a "
+            "Qwen model. Injecting Llama-style ChatML fallback (may degrade outputs)."
+        )
+        # Llama / SmolLM2 style
+        tokenizer.chat_template = (
+            "{%- for message in messages -%}"
+            "{{- '<|' + message['role'] + '|>\\n' + message['content'] + '\\n' -}}"
+            "{%- endfor -%}"
+            "{%- if add_generation_prompt -%}"
+            "{{- '<|assistant|>\\n' -}}"
+            "{%- endif -%}"
+        )
+
+
 def evaluate_model(model, tokenizer, test_data, num_runs=3):
     """Evaluate the model num_runs times per example and take the majority vote (greedy decoding)."""
     model.eval()
@@ -105,6 +155,8 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    ensure_chat_template(tokenizer)
 
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
