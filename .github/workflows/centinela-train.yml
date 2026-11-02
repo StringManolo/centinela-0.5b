@@ -23,6 +23,10 @@ on:
         description: 'Path to training JSONL (default: data/train.jsonl)'
         required: false
         default: 'data/train.jsonl'
+      test_file:
+        description: 'Path to test JSONL (default: data/test.jsonl)'
+        required: false
+        default: 'data/test.jsonl'
       convert_to_gguf:
         description: 'Merge LoRA and convert to GGUF (slow, ~5-15 min)'
         type: boolean
@@ -86,10 +90,13 @@ jobs:
           TRAIN_FILE="${{ github.event.inputs.train_file }}"
           if [ -z "$TRAIN_FILE" ]; then TRAIN_FILE="data/train.jsonl"; fi
 
+          TEST_FILE="${{ github.event.inputs.test_file }}"
+          if [ -z "$TEST_FILE" ]; then TEST_FILE="data/test.jsonl"; fi
+
           python scripts/run_pipeline.py \
             --base_model "$BASE_MODEL" \
             --train_file "$TRAIN_FILE" \
-            --test_file "data/test.jsonl" \
+            --test_file "$TEST_FILE" \
             --output_dir "./lora_adapter" \
             --num_epochs "$EPOCHS" \
             --batch_size 1 \
