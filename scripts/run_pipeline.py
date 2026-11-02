@@ -158,6 +158,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_train_examples", type=int, default=None)
     parser.add_argument("--max_test_examples", type=int, default=None)
+    parser.add_argument("--alternate-order", action="store_true", default=False,
+                        help="Alternate the option order in train prompts (only useful with many examples)")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -172,9 +174,6 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     ensure_chat_template(tokenizer)
-
-    # Fix: Qwen tokenizers default to padding_side='left' (generation-oriented).
-    # For SFTTrainer we need 'right' to avoid overflow issues during training.
     tokenizer.padding_side = "right"
 
     model = AutoModelForCausalLM.from_pretrained(
@@ -216,13 +215,16 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # 5. Load and format training set (chat format + alternating option order)
+    # 5. Load and format training set
     print(f"[5/7] Loading training set: {args.train_file}")
     train_data = load_jsonl(args.train_file)
     if args.max_train_examples:
         train_data = train_data[:args.max_train_examples]
-    train_data = augment_prompt_order(train_data)
-    print(f"  -> {len(train_data)} training examples (option order alternated)")
+    if args.alternate_order:
+        train_data = augment_prompt_order(train_data)
+        print(f"  -> {len(train_data)} training examples (option order alternated)")
+    else:
+        print(f"  -> {len(train_data)} training examples (option order fixed)")
 
     train_dataset = Dataset.from_list(train_data).map(
         lambda ex: format_as_chat(ex, tokenizer)
@@ -285,6 +287,7 @@ def main():
         "num_test_examples": len(test_data),
         "num_epochs": args.num_epochs,
         "batch_size": args.batch_size,
+        "alternate_order": args.alternate_order,
         "max_train_examples": args.max_train_examples,
         "max_test_examples": args.max_test_examples,
         "acc_before": round(acc_before, 4),
@@ -312,10 +315,9 @@ def main():
 
 ## Configuration
 - **Base model**: `{args.base_model}`
-- **Train**: {len(train_data)} examples ({args.num_epochs} epochs, chat format, alternating option order)
+- **Train**: {len(train_data)} examples ({args.num_epochs} epochs, chat format, alternate_order={args.alternate_order})
 - **Test**: {len(test_data)} examples
 - **Batch size**: {args.batch_size}
-- **Decoding**: greedy, 3 passes, majority vote, max_new_tokens=5
 
 ## Results
 
@@ -332,7 +334,7 @@ def main():
 | PRE | {dist_before.get('VULNERABLE', 0)} | {dist_before.get('SAFE', 0)} | {dist_before.get('UNKNOWN', 0)} |
 | POST | {dist_after.get('VULNERABLE', 0)} | {dist_after.get('SAFE', 0)} | {dist_after.get('UNKNOWN', 0)} |
 
-> A constant row (all in one column) means the model collapsed to a single label. That is a red flag, not a result.
+> A constant row (all in one column) means the model collapsed to a single label.
 
 ## Timings
 
