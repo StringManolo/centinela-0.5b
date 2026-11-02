@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import time
+from collections import Counter
 from datetime import datetime
 
 import torch
@@ -25,7 +26,6 @@ def load_jsonl(path):
 
 
 def extract_answer(text):
-    """Extract VULNERABLE or SAFE from the model output."""
     text = text.upper()
     if "VULNERABLE" in text:
         return "VULNERABLE"
@@ -35,19 +35,9 @@ def extract_answer(text):
 
 
 def ensure_chat_template(tokenizer):
-    """
-    Some abliterated/heretic models lose `chat_template` during the ablation
-    process. If it's missing, inject the Qwen2.5 ChatML template, which is
-    compatible with the whole Qwen2/Qwen2.5 family.
-
-    For non-Qwen families (SmolLM2, Llama, etc.) this fallback will *not* be
-    correct. If the model is not Qwen and the template is missing, a warning
-    is printed and the run continues; the outputs may be degraded.
-    """
     if getattr(tokenizer, "chat_template", None) is not None:
         return
 
-    # Heuristic: is this a Qwen-family tokenizer?
     name = getattr(tokenizer, "name_or_path", "").lower()
     is_qwen = "qwen" in name
 
@@ -71,9 +61,8 @@ def ensure_chat_template(tokenizer):
     else:
         print(
             "  -> WARNING: tokenizer.chat_template is missing and this is not a "
-            "Qwen model. Injecting Llama-style ChatML fallback (may degrade outputs)."
+            "Qwen model. Injecting Llama-style fallback (may degrade outputs)."
         )
-        # Llama / SmolLM2 style
         tokenizer.chat_template = (
             "{%- for message in messages -%}"
             "{{- '<|' + message['role'] + '|>\\n' + message['content'] + '\\n' -}}"
@@ -84,8 +73,28 @@ def ensure_chat_template(tokenizer):
         )
 
 
+def augment_prompt_order(data):
+    out = []
+    for i, ex in enumerate(data):
+        ex2 = dict(ex)
+        if i % 2 == 1:
+            ex2["prompt"] = ex["prompt"].replace(
+                "Respond only 'VULNERABLE' or 'SAFE'.",
+                "Respond only 'SAFE' or 'VULNERABLE'.",
+            )
+        out.append(ex2)
+    return out
+
+
+def format_as_chat(example, tokenizer):
+    messages = [
+        {"role": "user", "content": example["prompt"]},
+        {"role": "assistant", "content": example["completion"]},
+    ]
+    return {"text": tokenizer.apply_chat_template(messages, tokenize=False)}
+
+
 def evaluate_model(model, tokenizer, test_data, num_runs=3):
-    """Evaluate the model num_runs times per example and take the majority vote (greedy decoding)."""
     model.eval()
     correct = 0
     total = 0
@@ -107,8 +116,11 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=10,
+                    max_new_tokens=5,
                     do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None,
                 )
             response = tokenizer.decode(
                 outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True
@@ -131,6 +143,11 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
     return accuracy, results, elapsed
 
 
+def summarize_predictions(results):
+    counts = Counter(r["predicted"] for r in results)
+    return dict(counts)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base_model", type=str, required=True)
@@ -139,10 +156,8 @@ def main():
     parser.add_argument("--output_dir", type=str, default="./lora_adapter")
     parser.add_argument("--num_epochs", type=int, default=3)
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--max_train_examples", type=int, default=None,
-                        help="Limit the number of training examples (for sweeps)")
-    parser.add_argument("--max_test_examples", type=int, default=None,
-                        help="Limit the number of test examples (for sweeps)")
+    parser.add_argument("--max_train_examples", type=int, default=None)
+    parser.add_argument("--max_test_examples", type=int, default=None)
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -157,6 +172,10 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     ensure_chat_template(tokenizer)
+
+    # Fix: Qwen tokenizers default to padding_side='left' (generation-oriented).
+    # For SFTTrainer we need 'right' to avoid overflow issues during training.
+    tokenizer.padding_side = "right"
 
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model,
@@ -180,7 +199,9 @@ def main():
         model, tokenizer, test_data, num_runs=3
     )
     timings["eval_before_s"] = round(eval_before_s, 2)
+    dist_before = summarize_predictions(results_before)
     print(f"  -> PRE accuracy: {acc_before:.2%} ({timings['eval_before_s']}s)")
+    print(f"  -> PRE prediction distribution: {dist_before}")
 
     # 4. LoRA config
     print("[4/7] Configuring LoRA...")
@@ -195,17 +216,17 @@ def main():
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
 
-    # 5. Load training set
+    # 5. Load and format training set (chat format + alternating option order)
     print(f"[5/7] Loading training set: {args.train_file}")
     train_data = load_jsonl(args.train_file)
     if args.max_train_examples:
         train_data = train_data[:args.max_train_examples]
-    print(f"  -> {len(train_data)} training examples")
+    train_data = augment_prompt_order(train_data)
+    print(f"  -> {len(train_data)} training examples (option order alternated)")
 
-    train_dataset = Dataset.from_list([
-        {"text": f"{ex['prompt']}\n\nAnswer: {ex['completion']}"}
-        for ex in train_data
-    ])
+    train_dataset = Dataset.from_list(train_data).map(
+        lambda ex: format_as_chat(ex, tokenizer)
+    )
 
     # 6. Train
     print(f"[6/7] Training ({args.num_epochs} epochs, batch={args.batch_size})...")
@@ -249,7 +270,9 @@ def main():
         model, tokenizer, test_data, num_runs=3
     )
     timings["eval_after_s"] = round(eval_after_s, 2)
+    dist_after = summarize_predictions(results_after)
     print(f"  -> POST accuracy: {acc_after:.2%} ({timings['eval_after_s']}s)")
+    print(f"  -> POST prediction distribution: {dist_after}")
 
     timings["total_s"] = round(time.time() - t_total_start, 2)
 
@@ -267,6 +290,8 @@ def main():
         "acc_before": round(acc_before, 4),
         "acc_after": round(acc_after, 4),
         "improvement": round(improvement, 4),
+        "prediction_distribution_before": dist_before,
+        "prediction_distribution_after": dist_after,
         "timings": timings,
         "trainer_metrics": {
             "train_runtime": train_result.metrics.get("train_runtime"),
@@ -281,16 +306,16 @@ def main():
         json.dump(metrics, f, indent=2, ensure_ascii=False)
     print(f"Metrics saved to {metrics_path}")
 
-    # 10. Markdown report for the GitHub Job Summary
+    # 10. Markdown report
     report = f"""
 # Centinela-0.5b - Run report
 
 ## Configuration
 - **Base model**: `{args.base_model}`
-- **Train**: {len(train_data)} examples ({args.num_epochs} epochs)
+- **Train**: {len(train_data)} examples ({args.num_epochs} epochs, chat format, alternating option order)
 - **Test**: {len(test_data)} examples
 - **Batch size**: {args.batch_size}
-- **Decoding**: greedy, 3 passes with majority vote
+- **Decoding**: greedy, 3 passes, majority vote, max_new_tokens=5
 
 ## Results
 
@@ -299,6 +324,15 @@ def main():
 | PRE accuracy | **{acc_before:.2%}** |
 | POST accuracy | **{acc_after:.2%}** |
 | **Improvement** | **{improvement:+.2%}** |
+
+## Prediction distribution
+
+| Phase | VULNERABLE | SAFE | UNKNOWN |
+| :--- | :--- | :--- | :--- |
+| PRE | {dist_before.get('VULNERABLE', 0)} | {dist_before.get('SAFE', 0)} | {dist_before.get('UNKNOWN', 0)} |
+| POST | {dist_after.get('VULNERABLE', 0)} | {dist_after.get('SAFE', 0)} | {dist_after.get('UNKNOWN', 0)} |
+
+> A constant row (all in one column) means the model collapsed to a single label. That is a red flag, not a result.
 
 ## Timings
 

@@ -1,0 +1,328 @@
+{
+  "timestamp": "2026-11-02T20:26:02.894514Z",
+  "base_model": "dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2",
+  "num_train_examples": 10,
+  "num_test_examples": 50,
+  "num_epochs": 3,
+  "batch_size": 1,
+  "max_train_examples": null,
+  "max_test_examples": null,
+  "acc_before": 0.58,
+  "acc_after": 0.66,
+  "improvement": 0.08,
+  "timings": {
+    "model_load_s": 17.02,
+    "eval_before_s": 125.19,
+    "train_s": 37.57,
+    "save_s": 0.34,
+    "eval_after_s": 112.63,
+    "total_s": 292.94
+  },
+  "trainer_metrics": {
+    "train_runtime": 37.4194,
+    "train_loss": 2.1074233849843345,
+    "train_samples_per_second": 0.802
+  },
+  "predictions_after": [
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "VULNERABLE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "VULNERABLE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "VULNERABLE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "VULNERABLE",
+      "predicted": "SAFE",
+      "correct": false
+    },
+    {
+      "prompt": "Analyze the following JavaScript code and determine if it contains a vulnerability. Respond only 'VU...",
+      "expected": "SAFE",
+      "predicted": "SAFE",
+      "correct": true
+    }
+  ]
+}
