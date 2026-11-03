@@ -1,98 +1,128 @@
-name: Fine-tune Centinela
+name: Fine-tune Centinela Security Specialist
 
+# Manual only: a run takes ~1h on the CPU runner, so pushes no longer trigger it.
 on:
   workflow_dispatch:
     inputs:
-      num_epochs:
-        description: 'Epochs (0 = base, no training)'
-        default: '3'
       base_model:
-        description: 'HF model ID'
-        default: 'dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2'
-      train_file:
-        description: 'Train JSONL'
-        default: 'data/train_50.jsonl'
-      test_file_mc:
-        description: 'MC test JSONL'
-        default: 'data/test_vuln_types_mc.jsonl'
-      test_file_open:
-        description: 'Open test JSONL'
-        default: 'data/test_vuln_types_open.jsonl'
+        description: 'HuggingFace model ID'
+        required: false
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      train_pairs:
+        description: 'Training PAIRS to use (empty = all; 10 = 1 per vulnerability type)'
+        required: false
+        default: ''
+      num_epochs:
+        description: 'Epochs (ignored if max_steps is set)'
+        required: false
+        default: '8'
+      max_steps:
+        description: 'Optimizer steps (empty = use epochs). Use to fix the compute budget across data sizes'
+        required: false
+        default: ''
       lr:
         description: 'Learning rate'
+        required: false
         default: '2e-4'
       seed:
-        description: 'Random seed'
+        description: 'Seed (LoRA init, data order, label order)'
+        required: false
         default: '42'
-      max_seq_length:
-        description: 'Max sequence length'
-        default: '1024'
-  push:
-    branches: [main]
-    paths:
-      - 'data/**'
-      - 'scripts/**'
-      - '.github/workflows/centinela-train.yml'
+      train_templates:
+        description: 'Number of distinct training prompt templates (1-5)'
+        required: false
+        default: '5'
+      eval_every:
+        description: 'Optimizer steps between evals (empty = every epoch)'
+        required: false
+        default: ''
+      extra_args:
+        description: 'Extra pipeline args, e.g. --lora_r 16 --lora_targets all-linear --permute_labels --no_shift_eval'
+        required: false
+        default: ''
+      convert_to_gguf:
+        description: 'Merge LoRA and convert to GGUF (slow, ~5-15 min)'
+        type: boolean
+        required: false
+        default: false
 
 jobs:
-  run:
+  fine-tune-and-evaluate:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
           cache-dependency-path: requirements.txt
-      - uses: actions/cache@v4
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: ${{ runner.os }}-hf-v6
-          restore-keys: ${{ runner.os }}-hf-
+          key: ${{ runner.os }}-hf-centinela-v3
+          restore-keys: |
+            ${{ runner.os }}-hf-centinela-
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Verify tokenization (only if training)
-        env:
-          HF_HOME: ~/.cache/huggingface
         run: |
-          EPOCHS="${{ github.event.inputs.num_epochs }}"; [ -z "$EPOCHS" ] && EPOCHS=3
-          if [ "$EPOCHS" = "0" ]; then
-            echo "ep=0, skipping tokenization check"
-            exit 0
-          fi
-          MAXSEQ="${{ github.event.inputs.max_seq_length }}"; [ -z "$MAXSEQ" ] && MAXSEQ=1024
-          MODEL="${{ github.event.inputs.base_model }}"; [ -z "$MODEL" ] && MODEL="dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2"
-          TRAIN="${{ github.event.inputs.train_file }}"; [ -z "$TRAIN" ] && TRAIN="data/train_50.jsonl"
-          python scripts/verify_tokenization.py --tokenizer "$MODEL" --files "$TRAIN" --max_seq_length "$MAXSEQ"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run pipeline
+      - name: Run fine-tuning and evaluation pipeline
         env:
           HF_HOME: ~/.cache/huggingface
           TOKENIZERS_PARALLELISM: "false"
           OMP_NUM_THREADS: "4"
+          IN_BASE_MODEL: ${{ inputs.base_model }}
+          IN_TRAIN_PAIRS: ${{ inputs.train_pairs }}
+          IN_EPOCHS: ${{ inputs.num_epochs }}
+          IN_MAX_STEPS: ${{ inputs.max_steps }}
+          IN_LR: ${{ inputs.lr }}
+          IN_SEED: ${{ inputs.seed }}
+          IN_TEMPLATES: ${{ inputs.train_templates }}
+          IN_EVAL_EVERY: ${{ inputs.eval_every }}
+          IN_EXTRA_ARGS: ${{ inputs.extra_args }}
         run: |
-          EPOCHS="${{ github.event.inputs.num_epochs }}"; [ -z "$EPOCHS" ] && EPOCHS=3
-          MODEL="${{ github.event.inputs.base_model }}"; [ -z "$MODEL" ] && MODEL="dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2"
-          TRAIN="${{ github.event.inputs.train_file }}"; [ -z "$TRAIN" ] && TRAIN="data/train_50.jsonl"
-          MC="${{ github.event.inputs.test_file_mc }}"; [ -z "$MC" ] && MC="data/test_vuln_types_mc.jsonl"
-          OPEN="${{ github.event.inputs.test_file_open }}"; [ -z "$OPEN" ] && OPEN="data/test_vuln_types_open.jsonl"
-          LR="${{ github.event.inputs.lr }}"; [ -z "$LR" ] && LR="2e-4"
-          SEED="${{ github.event.inputs.seed }}"; [ -z "$SEED" ] && SEED=42
-          MAXSEQ="${{ github.event.inputs.max_seq_length }}"; [ -z "$MAXSEQ" ] && MAXSEQ=1024
-
-          python scripts/run_pipeline.py \
-            --base_model "$MODEL" \
-            --train_file "$TRAIN" \
-            --test_file_mc "$MC" \
-            --test_file_open "$OPEN" \
-            --num_epochs "$EPOCHS" \
-            --lr "$LR" --seed "$SEED" --max_seq_length "$MAXSEQ" \
+          ARGS=(
+            --base_model "${IN_BASE_MODEL:-huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3}"
+            --train_file data/train.jsonl
+            --test_file data/test.jsonl
             --output_dir ./lora_adapter
+            --num_epochs "${IN_EPOCHS:-8}"
+            --lr "${IN_LR:-2e-4}"
+            --seed "${IN_SEED:-42}"
+            --train_templates "${IN_TEMPLATES:-5}"
+          )
+          if [ -n "$IN_TRAIN_PAIRS" ]; then ARGS+=(--train_pairs "$IN_TRAIN_PAIRS"); fi
+          if [ -n "$IN_MAX_STEPS" ];   then ARGS+=(--max_steps "$IN_MAX_STEPS"); fi
+          if [ -n "$IN_EVAL_EVERY" ];  then ARGS+=(--eval_every "$IN_EVAL_EVERY"); fi
+          # shellcheck disable=SC2086  # extra_args is intentionally word-split
+          python scripts/run_pipeline.py "${ARGS[@]}" $IN_EXTRA_ARGS
 
-      - uses: actions/upload-artifact@v4
+      - name: Convert merged model to GGUF
+        if: ${{ inputs.convert_to_gguf }}
+        run: bash scripts/convert_to_gguf.sh
+
+      - name: Upload LoRA adapter and metrics
+        uses: actions/upload-artifact@v4
         with:
           name: centinela-run-${{ github.run_id }}
           path: ./lora_adapter/
           if-no-files-found: error
+
+      - name: Upload GGUF files
+        if: ${{ inputs.convert_to_gguf }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-gguf-${{ github.run_id }}
+          path: |
+            ./centinela-0.5b-f16.gguf
+            ./centinela-0.5b-Q4_K_M.gguf
+          if-no-files-found: warn
