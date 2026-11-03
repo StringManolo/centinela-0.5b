@@ -32,6 +32,8 @@ diag*/
 sweep/
 runs/
 outputs/
+centinela_out/
+smoke_out/
 
 # ============================================================
 # Logs, temp, editor
@@ -50,3 +52,5 @@ Thumbs.db
 # HF / pip cache (in case a run writes to cwd)
 # ============================================================
 .cache/
+
+
