@@ -29,12 +29,25 @@ def load_jsonl(path):
 
 
 def extract_answer(text):
-    """Extract one of LABELS from the model output. Longest match first to avoid XSS inside SAFE etc."""
+    """Extract one of LABELS or VULNERABLE/SAFE from the model output."""
     text = text.upper()
-    # Order matters: longer/more specific first
+    # 4-class labels
     for label in ["INJECTION", "AUTHZ", "XSS", "SAFE"]:
         if label in text:
             return label
+    if "VULNERABLE" in text:
+        return "VULNERABLE"
+    return "UNKNOWN"
+
+
+def extract_binary(text):
+    """Binary extractor (used in reports to re-score paraphrased runs)."""
+    text = text.upper()
+    # Check VULNERABLE first (longer, more specific than SAFE)
+    if "VULNERABLE" in text:
+        return "VULNERABLE"
+    if "SAFE" in text:
+        return "SAFE"
     return "UNKNOWN"
 
 
@@ -93,12 +106,11 @@ def format_as_chat(example, tokenizer):
     return {"text": tokenizer.apply_chat_template(messages, tokenize=False)}
 
 
-def evaluate_model(model, tokenizer, test_data, num_runs=3):
+def evaluate_model(model, tokenizer, test_data, num_runs=3, max_new_tokens=20):
     model.eval()
     correct = 0
     total = 0
     results = []
-    # Confusion matrix: cm[expected][predicted] = count
     cm = defaultdict(lambda: defaultdict(int))
     t_start = time.time()
 
@@ -111,11 +123,12 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
 
         run_answers = []
+        run_raws = []
         for _ in range(num_runs):
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=5,
+                    max_new_tokens=max_new_tokens,
                     do_sample=False,
                     temperature=None,
                     top_p=None,
@@ -123,6 +136,7 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
                 )
             response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
             run_answers.append(extract_answer(response))
+            run_raws.append(response)
 
         final_answer = max(set(run_answers), key=run_answers.count)
         is_correct = final_answer == expected
@@ -131,13 +145,14 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
         cm[expected][final_answer] += 1
         results.append({
             "prompt": prompt[:100] + "...",
+            "prompt_full": prompt,
             "expected": expected,
             "predicted": final_answer,
+            "raw_responses": run_raws,
             "correct": is_correct,
         })
 
     accuracy = correct / total if total > 0 else 0.0
-    # Balanced accuracy: mean of per-class recall (ignores UNKNOWN classes not in test)
     recalls = []
     for label in LABELS:
         support = sum(cm[label].values())
@@ -147,6 +162,41 @@ def evaluate_model(model, tokenizer, test_data, num_runs=3):
 
     elapsed = time.time() - t_start
     return accuracy, balanced_acc, results, dict(cm), elapsed
+
+
+def re_score_binary(results):
+    """
+    Re-score the same results using the binary extractor on the raw responses.
+    Useful for paraphrased binary runs where the 4-class extractor returns UNKNOWN.
+    Returns: accuracy, balanced_acc, distribution, confusion
+    """
+    correct = 0
+    total = 0
+    cm = defaultdict(lambda: defaultdict(int))
+    for r in results:
+        expected = r["expected"]
+        raw_runs = r.get("raw_responses", [])
+        # Apply binary extractor to each raw response
+        binary_runs = [extract_binary(raw) for raw in raw_runs]
+        final = max(set(binary_runs), key=binary_runs.count) if binary_runs else "UNKNOWN"
+        is_correct = final == expected
+        correct += int(is_correct)
+        total += 1
+        cm[expected][final] += 1
+    acc = correct / total if total else 0.0
+    # Binary balanced accuracy (2 classes)
+    recalls = []
+    for label in ["VULNERABLE", "SAFE"]:
+        support = sum(cm[label].values())
+        if support > 0:
+            recalls.append(cm[label][label] / support)
+    bal = sum(recalls) / len(recalls) if recalls else 0.0
+    dist = dict(Counter(
+        max(set([extract_binary(raw) for raw in r.get("raw_responses", [])]),
+            key=[extract_binary(raw) for raw in r.get("raw_responses", [])].count)
+        for r in results
+    ))
+    return acc, bal, dist, {k: dict(v) for k, v in cm.items()}
 
 
 def main():
@@ -160,6 +210,7 @@ def main():
     parser.add_argument("--max_train_examples", type=int, default=None)
     parser.add_argument("--max_test_examples", type=int, default=None)
     parser.add_argument("--alternate-order", action="store_true", default=False)
+    parser.add_argument("--max_new_tokens", type=int, default=20)
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -177,6 +228,7 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=torch.float32, trust_remote_code=True)
     model.to("cpu")
     timings["model_load_s"] = round(time.time() - t0, 2)
+    print(f"  -> loaded in {timings['model_load_s']}s")
 
     # 2. Test
     print(f"[2/7] Test: {args.test_file}")
@@ -185,13 +237,18 @@ def main():
         test_data = test_data[:args.max_test_examples]
     print(f"  -> {len(test_data)} test examples")
 
-    # 3. PRE
-    print("[3/7] PRE eval...")
-    acc_before, bal_before, results_before, cm_before, eval_before_s = evaluate_model(model, tokenizer, test_data, num_runs=3)
+    # 3. PRE eval
+    print(f"[3/7] PRE eval (max_new_tokens={args.max_new_tokens})...")
+    acc_before, bal_before, results_before, cm_before, eval_before_s = evaluate_model(
+        model, tokenizer, test_data, num_runs=3, max_new_tokens=args.max_new_tokens
+    )
     timings["eval_before_s"] = round(eval_before_s, 2)
     dist_before = dict(Counter(r["predicted"] for r in results_before))
+    # Binary re-score of the same raw responses
+    bin_acc_b, bin_bal_b, bin_dist_b, bin_cm_b = re_score_binary(results_before)
     print(f"  -> PRE acc: {acc_before:.2%} | balanced: {bal_before:.2%}")
     print(f"  -> PRE dist: {dist_before}")
+    print(f"  -> PRE binary rescore: acc {bin_acc_b:.2%} | bal {bin_bal_b:.2%} | dist {bin_dist_b}")
 
     # 4. LoRA
     print("[4/7] LoRA...")
@@ -200,7 +257,7 @@ def main():
         target_modules=["q_proj", "v_proj"], bias="none",
     ))
 
-    # 5. Train
+    # 5. Train data
     print(f"[5/7] Train: {args.train_file}")
     train_data = load_jsonl(args.train_file)
     if args.max_train_examples:
@@ -231,13 +288,17 @@ def main():
     tokenizer.save_pretrained(args.output_dir)
     timings["save_s"] = round(time.time() - t0, 2)
 
-    # 8. POST
+    # 8. POST eval
     print("POST eval...")
-    acc_after, bal_after, results_after, cm_after, eval_after_s = evaluate_model(model, tokenizer, test_data, num_runs=3)
+    acc_after, bal_after, results_after, cm_after, eval_after_s = evaluate_model(
+        model, tokenizer, test_data, num_runs=3, max_new_tokens=args.max_new_tokens
+    )
     timings["eval_after_s"] = round(eval_after_s, 2)
     dist_after = dict(Counter(r["predicted"] for r in results_after))
+    bin_acc_a, bin_bal_a, bin_dist_a, bin_cm_a = re_score_binary(results_after)
     print(f"  -> POST acc: {acc_after:.2%} | balanced: {bal_after:.2%}")
     print(f"  -> POST dist: {dist_after}")
+    print(f"  -> POST binary rescore: acc {bin_acc_a:.2%} | bal {bin_bal_a:.2%} | dist {bin_dist_a}")
 
     timings["total_s"] = round(time.time() - t_total_start, 2)
 
@@ -249,6 +310,7 @@ def main():
         "num_test_examples": len(test_data),
         "num_epochs": args.num_epochs,
         "alternate_order": args.alternate_order,
+        "max_new_tokens": args.max_new_tokens,
         "accuracy_before": round(acc_before, 4),
         "accuracy_after": round(acc_after, 4),
         "balanced_accuracy_before": round(bal_before, 4),
@@ -258,6 +320,18 @@ def main():
         "prediction_distribution_after": dist_after,
         "confusion_matrix_before": {k: dict(v) for k, v in cm_before.items()},
         "confusion_matrix_after": {k: dict(v) for k, v in cm_after.items()},
+        "binary_rescore_before": {
+            "accuracy": round(bin_acc_b, 4),
+            "balanced_accuracy": round(bin_bal_b, 4),
+            "distribution": bin_dist_b,
+            "confusion_matrix": bin_cm_b,
+        },
+        "binary_rescore_after": {
+            "accuracy": round(bin_acc_a, 4),
+            "balanced_accuracy": round(bin_bal_a, 4),
+            "distribution": bin_dist_a,
+            "confusion_matrix": bin_cm_a,
+        },
         "timings": timings,
         "trainer_metrics": {
             "train_runtime": train_result.metrics.get("train_runtime"),
@@ -269,55 +343,7 @@ def main():
     metrics_path = os.path.join(args.output_dir, "metrics.json")
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
-
-    # 10. Report
-    report = f"""
-# Centinela - Classification Run Report
-
-## Config
-- **Base model**: `{args.base_model}`
-- **Train**: {len(train_data)} ex ({args.num_epochs} epochs, alt_order={args.alternate_order})
-- **Test**: {len(test_data)} ex
-- **Labels**: {LABELS}
-
-## Accuracy
-
-| Metric | PRE | POST | Δ |
-| :--- | :--- | :--- | :--- |
-| Plain accuracy | {acc_before:.2%} | {acc_after:.2%} | {acc_after - acc_before:+.2%} |
-| **Balanced accuracy** | **{bal_before:.2%}** | **{bal_after:.2%}** | **{bal_after - bal_before:+.2%}** |
-
-> Balanced accuracy is the metric that matters here (classes are imbalanced). A constant predictor gets ~25%.
-
-## Prediction distribution
-
-| Phase | {LABELS[0]} | {LABELS[1]} | {LABELS[2]} | {LABELS[3]} | UNKNOWN |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| PRE | {dist_before.get(LABELS[0],0)} | {dist_before.get(LABELS[1],0)} | {dist_before.get(LABELS[2],0)} | {dist_before.get(LABELS[3],0)} | {dist_before.get('UNKNOWN',0)} |
-| POST | {dist_after.get(LABELS[0],0)} | {dist_after.get(LABELS[1],0)} | {dist_after.get(LABELS[2],0)} | {dist_after.get(LABELS[3],0)} | {dist_after.get('UNKNOWN',0)} |
-
-## Confusion matrix (POST)
-
-| expected \\ predicted | {LABELS[0]} | {LABELS[1]} | {LABELS[2]} | {LABELS[3]} | UNKNOWN |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-"""
-    for exp_label in LABELS:
-        row = cm_after.get(exp_label, {})
-        report += f"| **{exp_label}** | {row.get(LABELS[0],0)} | {row.get(LABELS[1],0)} | {row.get(LABELS[2],0)} | {row.get(LABELS[3],0)} | {row.get('UNKNOWN',0)} |\n"
-
-    report += f"""
-## Timings (s)
-- model_load: {timings['model_load_s']}
-- eval_pre: {timings['eval_before_s']}
-- train: {timings['train_s']}
-- save: {timings['save_s']}
-- eval_post: {timings['eval_after_s']}
-- **total: {timings['total_s']}**
-"""
-    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary_path:
-        with open(summary_path, "a", encoding="utf-8") as f:
-            f.write(report)
+    print(f"Metrics saved to {metrics_path}")
 
 
 if __name__ == "__main__":
