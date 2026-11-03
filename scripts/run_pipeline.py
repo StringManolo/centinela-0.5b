@@ -1,30 +1,23 @@
 #!/usr/bin/env python3
 """
-Centinela pipeline v2.
+Centinela pipeline v3.
 
-What changed vs v1 (and why):
-  * Loss is computed ONLY on the answer tokens (prompt/code tokens are masked with -100).
-  * Plain HF Trainer + our own tokenisation (no TRL): nothing is truncated silently,
-    over-long examples are reported and skipped.
-  * Evaluation does not generate text. It scores every candidate label by its
-    log-probability given the prompt (11 labels = 10 vulnerability types + SAFE),
-    so there is no parsing, no max_new_tokens and no greedy "3 passes".
-  * Metrics are hierarchical and prior-free where possible:
-      det_auroc        AUROC of "vulnerable vs SAFE"           (chance 0.50)
-      pair_acc         vulnerable twin scored above its safe twin (chance 0.50)
-      type_acc_forced  type among the 10 vuln labels, vulnerable examples only (chance 0.10)
-      mean_logp_correct  mean log P(correct label) over the 11 labels (chance -2.398)
-      acc / macro_recall / det_bal_acc   argmax-based, for reference
-  * Several test sets (e.g. iid, ood_near) x two prompt conditions:
-      seen  = the first training template
-      shift = held-out templates never used for training
-    plus a "train" probe (can the model even fit its own training data?).
-  * The learning curve is measured INSIDE one run (eval every N optimizer steps),
-    with a schedule that does not depend on the horizon (constant_with_warmup).
-  * --seed controls LoRA init, data order and label-order shuffling.
-  * --train_pairs / --train_templates / --max_steps give the grid knobs
-    (amount of data, prompt diversity, training budget).
-  * --permute_labels is the null control (labels shuffled across train examples).
+Cambios vs v2 (los que importan):
+  * label_order es CANÓNICO en train y eval. Barajar el orden de la lista de
+    labels por ejemplo dejaba que el modelo resolviera la tarea memorizando
+    "la respuesta es el token en la posición K" en vez de "feature de código
+    -> label". Evidencia en v2: train/seen type_forced se quedó en azar (0.15)
+    mientras train_loss caía a 0.003.
+  * score_prompt devuelve la MEDIA POR TOKEN del log-prob, no la suma.
+    Las sumas crudas están sesgadas hacia labels cortos (SAFE, XSS, SSRF =
+    1 token), y eso solo explicaba el pred_dist colapsado
+    {SAFE=124, SSRF=55, XSS=41} de v2.
+  * Las métricas de detección (det_auroc, det_bal_acc, pair_acc) usan el campo
+    ESTRUCTURAL 'role' ('vuln'/'safe'), no el label. Si no, con
+    --permute_labels el punto y el bootstrap medían cosas distintas y el
+    punto podía caer fuera de su propio CI.
+  * --num_epochs 0 es una run válida: solo se hace la evaluación step-0
+    (modelo base), se salta el entrenamiento.
 """
 import argparse
 import copy
@@ -40,7 +33,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-try:  # lets the pure helpers (metrics, data selection) be imported without torch
+try:  # permite importar helpers puros sin torch
     import torch
 except ImportError:  # pragma: no cover
     torch = None
@@ -54,7 +47,6 @@ LABELS = VULN_TYPES + [SAFE]
 SAFE_IDX = LABELS.index(SAFE)
 VULN_IDX = [i for i in range(len(LABELS)) if i != SAFE_IDX]
 
-# Templates seen in training (K = --train_templates uses the first K; eval "seen" uses T0).
 TRAIN_TEMPLATES = [
     "Analyze the following JavaScript code for security vulnerabilities.\n"
     "If it is vulnerable, answer with the vulnerability type; if it is not, answer SAFE.\n"
@@ -67,7 +59,6 @@ TRAIN_TEMPLATES = [
     "Security audit task. Read the code and output a single label from this list: {labels}.\n\n"
     "CODE START\n{code}\nCODE END",
 ]
-# Never used for training; used by the "shift" condition.
 HELDOUT_TEMPLATES = [
     "Review this JavaScript for security issues. Which category fits best? Options: {labels}. "
     "Reply with the option only.\n\n{code}",
@@ -90,17 +81,26 @@ def load_jsonl(path):
 
 def check_rows(rows, name):
     for r in rows:
-        for k in ("id", "pair_id", "set", "label", "code"):
+        for k in ("id", "pair_id", "set", "label", "code", "role"):
             if k not in r:
                 raise ValueError(f"{name}: row {r.get('id')} lacks field '{k}'")
         if r["label"] not in LABELS:
             raise ValueError(f"{name}: row {r['id']} has unknown label {r['label']!r}")
+        if r["role"] not in ("vuln", "safe"):
+            raise ValueError(f"{name}: row {r['id']} has bad role {r['role']!r}")
 
 
-def label_order(key):
-    order = LABELS[:]
-    random.Random(key).shuffle(order)  # str seeds are hashed deterministically
-    return order
+def label_order(key=None):
+    """Orden CANÓNICO. `key` se acepta por compatibilidad con los call-sites.
+
+    v2 barajaba `LABELS` por ejemplo. Eso crea una tarea de memorización
+    posicional: el modelo aprende "la respuesta está en la posición K del
+    prompt", no "feature -> label". Evidencia: train/seen type_forced se
+    quedó en azar mientras train_loss bajaba a 0.003. Con orden canónico el
+    prompt siempre lista los labels en el mismo orden y la posición deja de
+    ser informativa.
+    """
+    return LABELS[:]
 
 
 def build_user_text(template, code, order):
@@ -108,7 +108,6 @@ def build_user_text(template, code, order):
 
 
 def select_pairs(rows, n_pairs):
-    """Keep the first n_pairs pairs in file order (files are round-robin by type)."""
     order, groups = [], defaultdict(list)
     for r in rows:
         if r["pair_id"] not in groups:
@@ -139,10 +138,16 @@ def r4(x):
 
 
 def pairs_of(rows):
+    """Parejas por `role` ESTRUCTURAL, no por label.
+
+    v2 usaba `r["label"] == SAFE`, lo que con --permute_labels mezclaba
+    filas estructuralmente vuln con etiquetas SAFE, invalidando la
+    comparación entre el punto y el bootstrap.
+    """
     by = defaultdict(dict)
     for i, r in enumerate(rows):
-        by[r["pair_id"]]["s" if r["label"] == SAFE else "v"] = i
-    return [(d["v"], d["s"]) for d in by.values() if "v" in d and "s" in d]
+        by[r["pair_id"]][r["role"]] = i
+    return [(d["vuln"], d["safe"]) for d in by.values() if "vuln" in d and "safe" in d]
 
 
 def code_features(code):
@@ -152,12 +157,10 @@ def code_features(code):
 
 
 def shortcut_baselines(rows):
-    """What the best SINGLE trivial feature (either direction) scores on the same metrics.
-    A model is only interesting if it clearly beats this."""
     if not rows:
         return {}
     prs = pairs_of(rows)
-    is_vuln = np.asarray([r["label"] != SAFE for r in rows])
+    is_vuln = np.asarray([r["role"] == "vuln" for r in rows])
     feats = [code_features(r["code"]) for r in rows]
     out = {}
     for f in ("chars", "lines", "comment_lines"):
@@ -170,7 +173,6 @@ def shortcut_baselines(rows):
 
 
 def compute_metrics(rows, ci=False, n_boot=1000):
-    """rows: dicts with 'label', 'pair_id' and 'scores' (sum log-prob per label, LABELS order)."""
     n = len(rows)
     if n == 0:
         return {}
@@ -178,7 +180,9 @@ def compute_metrics(rows, ci=False, n_boot=1000):
     y = np.asarray([LABELS.index(r["label"]) for r in rows])
     logp = S - lse(S)[:, None]
     pred = S.argmax(1)
-    is_vuln = y != SAFE_IDX
+    # ROLE estructural, no label: con --permute_labels el label está barajado
+    # pero el rol sigue siendo vuln/safe
+    is_vuln = np.asarray([r["role"] == "vuln" for r in rows])
     det = lse(S[:, VULN_IDX]) - S[:, SAFE_IDX]
     forced = np.asarray(VULN_IDX)[S[:, VULN_IDX].argmax(1)]
     forced_ok = (forced == y).astype(float)
@@ -233,12 +237,11 @@ def confusion(rows):
 
 # ----------------------------------------------------------------------------- tokenisation
 def ensure_chat_template(tokenizer):
-    """Returns 'native' or the name of the fallback that had to be injected."""
     if getattr(tokenizer, "chat_template", None) is not None:
         return "native"
     name = getattr(tokenizer, "name_or_path", "").lower()
     if "qwen" in name:
-        print("  -> WARNING: no chat template in tokenizer, injecting Qwen2.5 ChatML fallback")
+        print("  -> WARNING: no chat template, injecting Qwen2.5 ChatML fallback")
         tokenizer.chat_template = (
             "{%- if messages[0]['role'] == 'system' -%}"
             "{{- '<|im_start|>system\\n' + messages[0]['content'] + '<|im_end|>\\n' -}}"
@@ -268,8 +271,6 @@ def ensure_chat_template(tokenizer):
 
 
 class Encoder:
-    """Prompt ids and candidate-completion ids, tokenised separately so train and eval agree."""
-
     def __init__(self, tok):
         self.tok = tok
         dummy = [{"role": "user", "content": "x"}]
@@ -297,7 +298,7 @@ def build_train_features(enc, rows, n_templates, seed, max_len):
     feats, skipped, n_prompt, n_comp = [], [], 0, 0
     for i, r in enumerate(rows):
         tpl = TRAIN_TEMPLATES[i % n_templates]
-        order = label_order(f"train|{seed}|{r['id']}")
+        order = label_order()
         p = enc.prompt_ids(build_user_text(tpl, r["code"], order))
         c = enc.cand_ids[r["label"]]
         if len(p) + len(c) > max_len:
@@ -306,7 +307,7 @@ def build_train_features(enc, rows, n_templates, seed, max_len):
         feats.append({
             "input_ids": p + c,
             "attention_mask": [1] * (len(p) + len(c)),
-            "labels": [-100] * len(p) + c,  # loss ONLY on the answer tokens
+            "labels": [-100] * len(p) + c,
         })
         n_prompt += len(p)
         n_comp += len(c)
@@ -321,13 +322,19 @@ def build_train_features(enc, rows, n_templates, seed, max_len):
 
 # ----------------------------------------------------------------------------- evaluation
 def score_prompt(model, enc, p_ids):
-    """Sum log P(candidate completion | prompt) for every label. One prompt pass + KV-cache reuse."""
+    """Media POR TOKEN del log P(candidate | prompt).
+
+    La suma cruda está sesgada hacia labels cortos (SAFE, XSS, SSRF = 1 token)
+    porque un label de N tokens suma N términos negativos. Esa sola bias
+    explica el pred_dist colapsado que vimos en v2. Dividir por len(c) pone
+    todos los labels en la misma escala de "log-prob por token".
+    """
     with torch.no_grad():
         dev = next(model.parameters()).device
         ids = torch.tensor([p_ids], dtype=torch.long, device=dev)
         try:
             out = model(input_ids=ids, use_cache=True, num_logits_to_keep=1)
-        except TypeError:  # older/newer transformers without this kwarg
+        except TypeError:
             out = model(input_ids=ids, use_cache=True)
         last = torch.log_softmax(out.logits[0, -1].float(), dim=-1)
         pkv = out.past_key_values
@@ -341,13 +348,11 @@ def score_prompt(model, enc, p_ids):
                 lp = torch.log_softmax(o2.logits[0].float(), dim=-1)
                 tgt = torch.tensor(c[1:], dtype=torch.long, device=dev)
                 s += lp[torch.arange(len(c) - 1, device=dev), tgt].sum().item()
-            scores.append(s)
+            scores.append(s / len(c))
     return scores
 
 
 def eval_rows(model, enc, rows, cond):
-    """cond='seen' -> TRAIN_TEMPLATES[0]; cond='shift' -> held-out template chosen per PAIR,
-    so both twins of a pair always get the same template and label order."""
     pidx, out = {}, []
     for r in rows:
         pidx.setdefault(r["pair_id"], len(pidx))
@@ -357,10 +362,12 @@ def eval_rows(model, enc, rows, cond):
         else:
             k = pidx[r["pair_id"]] % len(HELDOUT_TEMPLATES)
             tid, tpl = f"H{k}", HELDOUT_TEMPLATES[k]
-        order = label_order(f"eval|{r['pair_id']}|{tid}")
+        order = label_order()
         p_ids = enc.prompt_ids(build_user_text(tpl, r["code"], order))
-        out.append({"id": r["id"], "pair_id": r["pair_id"], "set": r["set"], "label": r["label"],
-                    "cond": cond, "template": tid, "scores": score_prompt(model, enc, p_ids)})
+        out.append({"id": r["id"], "pair_id": r["pair_id"], "set": r["set"],
+                    "label": r["label"], "role": r["role"],
+                    "cond": cond, "template": tid,
+                    "scores": score_prompt(model, enc, p_ids)})
     return out
 
 
@@ -426,8 +433,7 @@ def summary_markdown(cfg, step0, final):
         lines.append(f"| {k} | " + " | ".join(cells) + " |")
     sb = cfg.get("shortcut_baselines") or {}
     if sb:
-        lines += ["", "Best trivial single-feature baseline (length / lines / comment count) on the same test sets; "
-                      "det_auroc and pair_acc only mean something above these:", "",
+        lines += ["", "Best trivial single-feature baseline (length / lines / comment count):", "",
                   "| set | det_auroc | pair_acc |", "|---|---|---|"]
         lines += [f"| {s} | {b['best']['det_auroc']} | {b['best']['pair_acc']} |" for s, b in sb.items()]
     return "\n".join(lines)
@@ -440,26 +446,26 @@ def parse_args(argv=None):
     ap.add_argument("--train_file", default="data/train.jsonl")
     ap.add_argument("--test_file", default="data/test.jsonl")
     ap.add_argument("--output_dir", default="./lora_adapter")
-    ap.add_argument("--train_pairs", type=int, default=0, help="first N pairs of the train file (0 = all)")
-    ap.add_argument("--train_templates", type=int, default=5, help="how many training prompt templates (1-5)")
+    ap.add_argument("--train_pairs", type=int, default=0)
+    ap.add_argument("--train_templates", type=int, default=5)
     ap.add_argument("--num_epochs", type=float, default=8)
-    ap.add_argument("--max_steps", type=int, default=0, help="optimizer steps; overrides --num_epochs if > 0")
+    ap.add_argument("--max_steps", type=int, default=0)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--lr_scheduler", default="constant_with_warmup")
     ap.add_argument("--warmup_steps", type=int, default=5)
     ap.add_argument("--batch_size", type=int, default=1)
     ap.add_argument("--grad_accum", type=int, default=4)
     ap.add_argument("--lora_r", type=int, default=8)
-    ap.add_argument("--lora_targets", default="q_proj,v_proj", help="comma list or 'all-linear'")
+    ap.add_argument("--lora_targets", default="q_proj,v_proj")
     ap.add_argument("--lora_dropout", type=float, default=0.05)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--eval_every", type=int, default=0, help="optimizer steps between evals (0 = every epoch)")
-    ap.add_argument("--eval_sets", default="", help="comma list of test sets to evaluate (default: all in file)")
-    ap.add_argument("--eval_pairs_per_set", type=int, default=0, help="limit pairs per test set (0 = all)")
-    ap.add_argument("--train_probe_n", type=int, default=40, help="train rows evaluated as fit-check (0 = off)")
-    ap.add_argument("--no_shift_eval", action="store_true", help="skip the held-out-template condition")
+    ap.add_argument("--eval_every", type=int, default=0)
+    ap.add_argument("--eval_sets", default="")
+    ap.add_argument("--eval_pairs_per_set", type=int, default=0)
+    ap.add_argument("--train_probe_n", type=int, default=40)
+    ap.add_argument("--no_shift_eval", action="store_true")
     ap.add_argument("--max_len", type=int, default=768)
-    ap.add_argument("--permute_labels", action="store_true", help="null control: shuffle train labels")
+    ap.add_argument("--permute_labels", action="store_true")
     ap.add_argument("--skip_step0", action="store_true")
     args = ap.parse_args(argv)
     if not 1 <= args.train_templates <= len(TRAIN_TEMPLATES):
@@ -516,7 +522,7 @@ def main():
     probe_rows = train_rows[:args.train_probe_n] if args.train_probe_n > 0 else []
     baselines = {s: shortcut_baselines(rows) for s, rows in test_by_set.items()}
     for s, b in baselines.items():
-        print(f"  trivial-feature baseline [{s}] (length/lines/comments, best of each): "
+        print(f"  trivial-feature baseline [{s}]: "
               f"det_auroc<={b['best']['det_auroc']}, pair_acc<={b['best']['pair_acc']}")
     print(f"  train: {len(train_rows)} rows / {len(train_rows) // 2} pairs, "
           f"labels {dict(Counter(r['label'] for r in train_rows))}")
@@ -529,11 +535,10 @@ def main():
     if skipped:
         print(f"  WARNING: {len(skipped)} train rows longer than --max_len skipped: {skipped[:5]}")
     print(f"  train tokens: {tstats}")
-    print("  (supervised_fraction = share of tokens that carry loss; v1 trained on 100% incl. the code)")
 
     # 3. LoRA
     print("[3/6] LoRA")
-    set_seed(args.seed)  # LoRA init must be seeded: it happens before the Trainer is built
+    set_seed(args.seed)
     targets = "all-linear" if args.lora_targets == "all-linear" else \
         [t.strip() for t in args.lora_targets.split(",") if t.strip()]
     model = get_peft_model(model, LoraConfig(
@@ -551,7 +556,7 @@ def main():
 
     curve, scores_step0 = [], []
 
-    # 4. step-0 evaluation (LoRA B=0 -> identical to the base model)
+    # 4. step-0
     if not args.skip_step0:
         print("[4/6] Step-0 evaluation (base model)")
         t0 = time.time()
@@ -563,63 +568,69 @@ def main():
     step0 = curve[0]["metrics"] if curve else {}
 
     # 5. training
-    print("[5/6] Training")
+    if total_steps == 0:
+        print("[5/6] Training: SKIPPED (num_epochs=0 -> base model only)")
+        mf = step0
+        scores_final = scores_step0
+        final_step = 0
+        result_metrics = {"train_runtime": 0.0}
+    else:
+        print("[5/6] Training")
 
-    class ListDataset(torch.utils.data.Dataset):
-        def __init__(self, items):
-            self.items = items
+        class ListDataset(torch.utils.data.Dataset):
+            def __init__(self, items):
+                self.items = items
+            def __len__(self):
+                return len(self.items)
+            def __getitem__(self, i):
+                return dict(self.items[i])
 
-        def __len__(self):
-            return len(self.items)
+        class EvalCallback(TrainerCallback):
+            def __init__(self):
+                self.ptr = 0
+            def on_step_end(self, a, state, control, **kw):
+                s = state.global_step
+                if s % eval_every == 0 and s < state.max_steps:
+                    hist = [h["loss"] for h in state.log_history[self.ptr:] if "loss" in h]
+                    self.ptr = len(state.log_history)
+                    t1 = time.time()
+                    m, _ = eval_point(model, enc, test_by_set, probe_rows, shift)
+                    curve.append({"step": s, "epoch": round(s / steps_per_epoch, 2),
+                                  "train_loss": r4(float(np.mean(hist))) if hist else None,
+                                  "metrics": m})
+                    print(f"  [step {s}] loss={curve[-1]['train_loss']} ({time.time() - t1:.0f}s eval) "
+                          + " | ".join(f"{k}: auroc={v.get('det_auroc')} type={v.get('type_acc_forced')}"
+                                       for k, v in sorted(m.items())))
 
-        def __getitem__(self, i):
-            # copy: DataCollatorForSeq2Seq re-assigns feature["labels"] when padding (batch_size > 1)
-            return dict(self.items[i])
+        targs = TrainingArguments(
+            output_dir="./trainer_out", num_train_epochs=args.num_epochs,
+            max_steps=args.max_steps if args.max_steps > 0 else -1,
+            per_device_train_batch_size=args.batch_size, gradient_accumulation_steps=args.grad_accum,
+            learning_rate=args.lr, lr_scheduler_type=args.lr_scheduler, warmup_steps=args.warmup_steps,
+            weight_decay=0.0, logging_steps=1, save_strategy="no", report_to="none",
+            use_cpu=True, fp16=False, bf16=False, dataloader_pin_memory=False,
+            remove_unused_columns=False, seed=args.seed, disable_tqdm=True)
+        trainer = Trainer(model=model, args=targs, train_dataset=ListDataset(feats),
+                          data_collator=DataCollatorForSeq2Seq(tok, padding=True, label_pad_token_id=-100),
+                          callbacks=[EvalCallback()])
+        t0 = time.time()
+        result = trainer.train()
+        timings["train_s"] = round(time.time() - t0, 2)
+        last_hist = [h["loss"] for h in trainer.state.log_history if "loss" in h]
+        print(f"  trained in {timings['train_s']}s, final loss (last 5) "
+              f"{np.mean(last_hist[-5:]) if last_hist else None}")
 
-    class EvalCallback(TrainerCallback):
-        def __init__(self):
-            self.ptr = 0
+        # 6. final eval
+        print("[6/6] Final evaluation")
+        t0 = time.time()
+        mf, scores_final = eval_point(model, enc, test_by_set, probe_rows, shift, ci=True, keep_scores=True)
+        timings["eval_final_s"] = round(time.time() - t0, 2)
+        final_step = trainer.state.global_step
+        curve.append({"step": final_step, "epoch": round(final_step / steps_per_epoch, 2),
+                      "train_loss": r4(float(np.mean(last_hist[-steps_per_epoch:]))) if last_hist else None,
+                      "metrics": mf})
+        result_metrics = result.metrics
 
-        def on_step_end(self, a, state, control, **kw):
-            s = state.global_step
-            if s % eval_every == 0 and s < state.max_steps:
-                hist = [h["loss"] for h in state.log_history[self.ptr:] if "loss" in h]
-                self.ptr = len(state.log_history)
-                t1 = time.time()
-                m, _ = eval_point(model, enc, test_by_set, probe_rows, shift)
-                curve.append({"step": s, "epoch": round(s / steps_per_epoch, 2),
-                              "train_loss": r4(float(np.mean(hist))) if hist else None, "metrics": m})
-                print(f"  [step {s}] loss={curve[-1]['train_loss']} ({time.time() - t1:.0f}s eval) " +
-                      " | ".join(f"{k}: auroc={v.get('det_auroc')} type={v.get('type_acc_forced')}"
-                                 for k, v in sorted(m.items())))
-
-    targs = TrainingArguments(
-        output_dir="./trainer_out", num_train_epochs=args.num_epochs,
-        max_steps=args.max_steps if args.max_steps > 0 else -1,
-        per_device_train_batch_size=args.batch_size, gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.lr, lr_scheduler_type=args.lr_scheduler, warmup_steps=args.warmup_steps,
-        weight_decay=0.0, logging_steps=1, save_strategy="no", report_to="none",
-        use_cpu=True, fp16=False, bf16=False, dataloader_pin_memory=False,
-        remove_unused_columns=False, seed=args.seed, disable_tqdm=True)
-    trainer = Trainer(model=model, args=targs, train_dataset=ListDataset(feats),
-                      data_collator=DataCollatorForSeq2Seq(tok, padding=True, label_pad_token_id=-100),
-                      callbacks=[EvalCallback()])
-    t0 = time.time()
-    result = trainer.train()
-    timings["train_s"] = round(time.time() - t0, 2)
-    last_hist = [h["loss"] for h in trainer.state.log_history if "loss" in h]
-    print(f"  trained in {timings['train_s']}s, final loss (last 5 logs) "
-          f"{np.mean(last_hist[-5:]) if last_hist else None}")
-
-    # 6. final evaluation + outputs
-    print("[6/6] Final evaluation")
-    t0 = time.time()
-    mf, scores_final = eval_point(model, enc, test_by_set, probe_rows, shift, ci=True, keep_scores=True)
-    timings["eval_final_s"] = round(time.time() - t0, 2)
-    final_step = trainer.state.global_step
-    curve.append({"step": final_step, "epoch": round(final_step / steps_per_epoch, 2),
-                  "train_loss": r4(float(np.mean(last_hist[-steps_per_epoch:]))) if last_hist else None,
-                  "metrics": mf})
     model.save_pretrained(args.output_dir)
     tok.save_pretrained(args.output_dir)
     timings["total_s"] = round(time.time() - t_all, 2)
@@ -629,8 +640,9 @@ def main():
                chat_template_source=template_source, skipped_too_long=skipped, train_token_stats=tstats,
                versions={"torch": torch.__version__, "transformers": transformers.__version__,
                          "peft": peft.__version__},
-               timestamp=datetime.now(timezone.utc).isoformat(), labels=LABELS, chance=CHANCE, shortcut_baselines=baselines,
-               train_runtime=result.metrics.get("train_runtime"))
+               timestamp=datetime.now(timezone.utc).isoformat(),
+               labels=LABELS, chance=CHANCE, shortcut_baselines=baselines,
+               train_runtime=result_metrics.get("train_runtime"))
     with open(os.path.join(args.output_dir, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump({"config": cfg, "timings": timings, "curve": curve}, f, indent=2, ensure_ascii=False)
     write_curve_csv(os.path.join(args.output_dir, "curve.csv"), curve)
