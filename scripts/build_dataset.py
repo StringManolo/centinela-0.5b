@@ -10,6 +10,8 @@ Design (see the chat discussion):
       train     sinks/APIs "set A"
       iid       same sinks/APIs as train, new identifiers/contexts
       ood_near  same vulnerability pattern, DIFFERENT sinks/APIs/frameworks ("set B")
+      ood_hard  1 pair per type on set-B sinks where the VULNERABLE twin has a mitigation-looking but
+                bypassable check: a detector of "mitigation idioms" cannot solve it
   * Some vulnerable snippets contain an *insufficient* mitigation (bypassable
     filter) and some safe ones use a dangerous sink with constant input, so
     "has validation code" / "uses innerHTML" are not reliable shortcuts.
@@ -37,7 +39,15 @@ VULN_TYPES = [
     "SSRF", "PROTO_POLLUTION", "OPEN_REDIRECT", "AUTHZ", "WEAK_CRYPTO",
 ]
 SAFE = "SAFE"
-N_TRAIN, N_IID, N_OOD = 5, 2, 3
+N_TRAIN, N_IID, N_OOD, N_HARD = 5, 2, 3, 1
+
+# Pairs whose VULNERABLE twin carries an insufficient (bypassable) mitigation, keyed (set, type, pair index).
+# Everything in ood_hard is insufficient by construction. Used for the `subtype` field.
+_INSUFF_TRAIN = {"XSS": [3], "SQLI": [2], "CMDI": [2], "CODE_INJECTION": [3], "PATH_TRAVERSAL": [2, 3],
+                 "SSRF": [2], "PROTO_POLLUTION": [2], "OPEN_REDIRECT": [2, 3], "AUTHZ": [3], "WEAK_CRYPTO": [3]}
+_INSUFF_IID = ["XSS", "SQLI", "CMDI", "CODE_INJECTION", "PATH_TRAVERSAL", "SSRF", "PROTO_POLLUTION",
+               "OPEN_REDIRECT", "AUTHZ"]
+INSUFFICIENT = {("train", t, j) for t, js in _INSUFF_TRAIN.items() for j in js} | {("iid", t, 1) for t in _INSUFF_IID}
 
 # DATA[type] = {"train": [(vulnerable, safe), ...], "iid": [...], "ood_near": [...]}
 DATA = {}
@@ -1769,6 +1779,209 @@ function newPasswordResetCode() {
     ],
 }
 
+# ---------------------------------------------------------------- ood_hard
+# One pair per type. The VULNERABLE twin contains a mitigation-looking but bypassable check
+# (so "mitigation idiom present -> SAFE" fails), on sinks/APIs not used in training.
+# The SAFE twin keeps a similar-looking line but is genuinely safe.
+DATA["XSS"]["ood_hard"] = [
+    (P(r'''
+$(function () {
+  const note = new URL(window.location.href).searchParams.get('note') || '';
+  const cleaned = note.replace(/<script[^>]*>/gi, '');
+  $('#note').html('<p>' + cleaned + '</p>');
+});
+'''), P(r'''
+$(function () {
+  const note = new URL(window.location.href).searchParams.get('note') || '';
+  const cleaned = note.replace(/[<>]/g, '');
+  $('#note').empty().append($('<p>').text(cleaned));
+});
+''')),
+]
+
+DATA["SQLI"]["ood_hard"] = [
+    (P(r'''
+router.get('/items/:id', async (req, res) => {
+  const id = String(req.params.id).replace(/;/g, '');
+  const rows = await knex.raw('SELECT * FROM items WHERE id = ' + id);
+  res.json(rows.rows);
+});
+'''), P(r'''
+router.get('/items/:id', async (req, res) => {
+  const id = String(req.params.id).replace(/;/g, '');
+  const rows = await knex.raw('SELECT * FROM items WHERE id = ?', [Number(id)]);
+  res.json(rows.rows);
+});
+''')),
+]
+
+DATA["CMDI"]["ood_hard"] = [
+    (P(r'''
+const { execSync } = require('child_process');
+
+app.get('/compress', (req, res) => {
+  const file = String(req.query.file).replace(/[;&|]/g, '');
+  execSync(`gzip -k uploads/${file}`);
+  res.sendStatus(200);
+});
+'''), P(r'''
+const { execFileSync } = require('child_process');
+
+app.get('/compress', (req, res) => {
+  const file = String(req.query.file).replace(/[;&|]/g, '');
+  execFileSync('gzip', ['-k', path.join('uploads', path.basename(file))]);
+  res.sendStatus(200);
+});
+''')),
+]
+
+DATA["CODE_INJECTION"]["ood_hard"] = [
+    (P(r'''
+const vm = require('vm');
+
+app.post('/script/eval', (req, res) => {
+  if (/require|process|child_process/.test(req.body.script)) return res.sendStatus(400);
+  res.json({ result: vm.runInNewContext(req.body.script) });
+});
+'''), P(r'''
+const vm = require('vm');
+const SCRIPTS = { total: 'items.reduce((a, b) => a + b.price, 0)', count: 'items.length' };
+
+app.post('/script/eval', (req, res) => {
+  if (/require|process|child_process/.test(req.body.script)) return res.sendStatus(400);
+  const source = Object.prototype.hasOwnProperty.call(SCRIPTS, req.body.script) ? SCRIPTS[req.body.script] : null;
+  if (!source) return res.sendStatus(404);
+  res.json({ result: vm.runInNewContext(source, { items: ITEMS.map((i) => ({ price: i.price })) }) });
+});
+''')),
+]
+
+DATA["PATH_TRAVERSAL"]["ood_hard"] = [
+    (P(r'''
+app.get('/reports/:name', (req, res) => {
+  const name = req.params.name.replace(/\.\.\//g, '');
+  fs.createReadStream(path.join(REPORT_DIR, name)).pipe(res);
+});
+'''), P(r'''
+app.get('/reports/:name', (req, res) => {
+  const name = req.params.name.replace(/\.\.\//g, '');
+  const full = path.resolve(REPORT_DIR, name);
+  if (!full.startsWith(path.resolve(REPORT_DIR) + path.sep)) return res.sendStatus(403);
+  fs.createReadStream(full).pipe(res);
+});
+''')),
+]
+
+DATA["SSRF"]["ood_hard"] = [
+    (P(r'''
+app.post('/link-preview', async (req, res) => {
+  const u = new URL(String(req.body.url));
+  if (!u.hostname.endsWith('example.com')) return res.sendStatus(400);
+  const r = await fetch(u.href);
+  res.json({ title: (await r.text()).slice(0, 80) });
+});
+'''), P(r'''
+app.post('/link-preview', async (req, res) => {
+  const u = new URL(String(req.body.url));
+  if (u.protocol !== 'https:' || (u.hostname !== 'example.com' && !u.hostname.endsWith('.example.com'))) return res.sendStatus(400);
+  const r = await fetch(u.href, { redirect: 'error' });
+  res.json({ title: (await r.text()).slice(0, 80) });
+});
+''')),
+]
+
+DATA["PROTO_POLLUTION"]["ood_hard"] = [
+    (P(r'''
+function setByPath(obj, path, value) {
+  const parts = path.split('.');
+  if (parts.includes('__proto__')) throw new Error('invalid path');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cur[parts[i]] === undefined) cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+app.post('/options', (req, res) => {
+  setByPath(options, req.body.path, req.body.value);
+  res.sendStatus(204);
+});
+'''), P(r'''
+function setByPath(obj, path, value) {
+  const parts = path.split('.');
+  if (parts.some((p) => p === '__proto__' || p === 'constructor' || p === 'prototype')) throw new Error('invalid path');
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cur[parts[i]] === undefined) cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
+app.post('/options', (req, res) => {
+  setByPath(options, req.body.path, req.body.value);
+  res.sendStatus(204);
+});
+''')),
+]
+
+DATA["OPEN_REDIRECT"]["ood_hard"] = [
+    (P(r'''
+fastify.get('/exit', async (request, reply) => {
+  const { to } = request.query;
+  if (!to.startsWith('https://example.com')) return reply.code(400).send({ error: 'blocked' });
+  return reply.redirect(to);
+});
+'''), P(r'''
+fastify.get('/exit', async (request, reply) => {
+  const { to } = request.query;
+  let target;
+  try { target = new URL(to); } catch (e) { return reply.code(400).send({ error: 'blocked' }); }
+  if (target.protocol !== 'https:' || target.hostname !== 'example.com') return reply.code(400).send({ error: 'blocked' });
+  return reply.redirect(target.href);
+});
+''')),
+]
+
+DATA["AUTHZ"]["ood_hard"] = [
+    (P(r'''
+app.put('/projects/:id', requireLogin, async (req, res) => {
+  if (req.body.ownerId !== req.user.id) return res.sendStatus(403);
+  const project = await prisma.project.update({ where: { id: Number(req.params.id) }, data: { name: req.body.name } });
+  res.json(project);
+});
+'''), P(r'''
+app.put('/projects/:id', requireLogin, async (req, res) => {
+  const existing = await prisma.project.findUnique({ where: { id: Number(req.params.id) } });
+  if (!existing || existing.ownerId !== req.user.id) return res.sendStatus(403);
+  const project = await prisma.project.update({ where: { id: existing.id }, data: { name: req.body.name } });
+  res.json(project);
+});
+''')),
+]
+
+DATA["WEAK_CRYPTO"]["ood_hard"] = [
+    (P(r'''
+const crypto = require('crypto');
+
+function encryptNote(text, key) {
+  const iv = Buffer.from(String(Date.now()).padEnd(16, '0'));
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+  return iv.toString('hex') + ':' + cipher.update(text, 'utf8', 'hex') + cipher.final('hex');
+}
+'''), P(r'''
+const crypto = require('crypto');
+
+function encryptNote(text, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const enc = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return iv.toString('hex') + ':' + cipher.getAuthTag().toString('hex') + ':' + enc.toString('hex');
+}
+''')),
+]
+
 
 # ====================================================================== shortcut control
 # Safe twins naturally contain more code (the fix), so "longer = SAFE" would score ~0.9 on pair
@@ -1826,21 +2039,23 @@ def _padded_data(seed):
     new = {}
     for t in VULN_TYPES:
         new[t] = {}
-        for s in ("train", "iid", "ood_near"):
+        for s in ("train", "iid", "ood_near", "ood_hard"):
             new[t][s] = [_pad_pair(v, sf, random.Random(f"{seed}|{s}|{t}|{j}"))
                          for j, (v, sf) in enumerate(DATA[t][s])]
     return new
 
 
 def _cues_by_set(data):
-    return {s: trivial_cues([p for t in VULN_TYPES for p in data[t][s]]) for s in ("train", "iid", "ood_near")}
+    return {s: trivial_cues([p for t in VULN_TYPES for p in data[t][s]]) for s in ("train", "iid", "ood_near", "ood_hard")}
 
 
-def choose_and_apply_padding(n_seeds=300):
+def choose_and_apply_padding(n_seeds=300, select_on=("train", "iid", "ood_near")):
+    """The seed is chosen on the original three sets only (so adding new sets never changes the code of
+    existing snippets, keeping earlier runs comparable); every set, new ones included, then gets that seed."""
     best = None
     for seed in range(n_seeds):
         cues = _cues_by_set(_padded_data(seed))
-        score = sum((c - 0.5) ** 2 for per in cues.values() for c in per.values())
+        score = sum((c - 0.5) ** 2 for s in select_on for c in cues[s].values())
         if best is None or score < best[0]:
             best = (score, seed, cues)
     _, seed, cues = best
@@ -1860,7 +2075,8 @@ def interleave(set_name):
                 continue
             vuln, safe = pairs[j]
             pid = f"{set_name}-{t}-{j + 1:02d}"
-            base = {"pair_id": pid, "set": set_name, "vuln_type": t}
+            sub = "insufficient" if (set_name == "ood_hard" or (set_name, t, j) in INSUFFICIENT) else "plain"
+            base = {"pair_id": pid, "set": set_name, "vuln_type": t, "subtype": sub}
             rows.append(dict(base, id=pid + "-v", label=t, role="vuln", code=vuln))
             rows.append(dict(base, id=pid + "-s", label=SAFE, role="safe", code=safe))
     return rows
@@ -1878,7 +2094,7 @@ def jaccard(a, b):
 
 def validate(train, test):
     errors = []
-    expected = {"train": N_TRAIN, "iid": N_IID, "ood_near": N_OOD}
+    expected = {"train": N_TRAIN, "iid": N_IID, "ood_near": N_OOD, "ood_hard": N_HARD}
     for t in VULN_TYPES:
         for s, n in expected.items():
             if len(DATA[t][s]) != n:
@@ -1903,7 +2119,7 @@ def validate(train, test):
 def similarity_report(train, test):
     tr = [idents(r["code"]) for r in train]
     out = {}
-    for s in ("iid", "ood_near"):
+    for s in ("iid", "ood_near", "ood_hard"):
         sims = []
         for r in test:
             if r["set"] != s:
@@ -1945,7 +2161,7 @@ def main():
 
     pad_seed, cues = choose_and_apply_padding()
     train = interleave("train")
-    test = interleave("iid") + interleave("ood_near")
+    test = interleave("iid") + interleave("ood_near") + interleave("ood_hard")
 
     errors = validate(train, test)
     if args.check_js:
@@ -1963,7 +2179,7 @@ def main():
 
     print(f"train.jsonl: {len(train)} snippets = {len(train) // 2} pairs")
     print("  labels:", dict(Counter(r["label"] for r in train)))
-    for s in ("iid", "ood_near"):
+    for s in ("iid", "ood_near", "ood_hard"):
         rows = [r for r in test if r["set"] == s]
         print(f"test.jsonl [{s}]: {len(rows)} snippets = {len(rows) // 2} pairs; "
               f"{dict(Counter(r['label'] for r in rows))}")

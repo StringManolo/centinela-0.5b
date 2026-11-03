@@ -29,15 +29,15 @@ on:
         required: false
         default: '42'
       train_templates:
-        description: 'Number of distinct training prompt templates (1-5)'
+        description: 'Distinct training prompt templates (1-5). Template = pair index within type mod K, so keep K <= pairs per type (10 pairs total => use 1)'
         required: false
-        default: '5'
+        default: '1'
       eval_every:
         description: 'Optimizer steps between evals (empty = every epoch)'
         required: false
         default: ''
       extra_args:
-        description: 'Extra pipeline args, e.g. --lora_r 16 --lora_targets all-linear --permute_labels --no_shift_eval'
+        description: 'Extra pipeline args, e.g. --eval_every 50 --eval_pairs_per_set 10 --train_probe_n 20 --no_shift_eval --permute_labels --score_mode sum'
         required: false
         default: ''
       convert_to_gguf:
@@ -79,6 +79,7 @@ jobs:
         env:
           HF_HOME: ~/.cache/huggingface
           TOKENIZERS_PARALLELISM: "false"
+          PYTHONUNBUFFERED: "1"
           OMP_NUM_THREADS: "4"
           IN_BASE_MODEL: ${{ inputs.base_model }}
           IN_TRAIN_PAIRS: ${{ inputs.train_pairs }}
@@ -98,7 +99,7 @@ jobs:
             --num_epochs "${IN_EPOCHS:-8}"
             --lr "${IN_LR:-2e-4}"
             --seed "${IN_SEED:-42}"
-            --train_templates "${IN_TEMPLATES:-5}"
+            --train_templates "${IN_TEMPLATES:-1}"
           )
           if [ -n "$IN_TRAIN_PAIRS" ]; then ARGS+=(--train_pairs "$IN_TRAIN_PAIRS"); fi
           if [ -n "$IN_MAX_STEPS" ];   then ARGS+=(--max_steps "$IN_MAX_STEPS"); fi
