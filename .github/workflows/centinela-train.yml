@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       num_epochs:
-        description: 'Epochs (default 3)'
+        description: 'Epochs (0 = base, no training)'
         default: '3'
       base_model:
         description: 'HF model ID'
@@ -12,17 +12,20 @@ on:
       train_file:
         description: 'Train JSONL'
         default: 'data/train_50.jsonl'
-      test_file:
-        description: 'Test JSONL'
-        default: 'data/test_extended.jsonl'
+      test_file_mc:
+        description: 'MC test JSONL'
+        default: 'data/test_vuln_types_mc.jsonl'
+      test_file_open:
+        description: 'Open test JSONL'
+        default: 'data/test_vuln_types_open.jsonl'
       lr:
-        description: 'Learning rate (default 2e-4)'
+        description: 'Learning rate'
         default: '2e-4'
       seed:
-        description: 'Random seed (default 42)'
+        description: 'Random seed'
         default: '42'
       max_seq_length:
-        description: 'Max sequence length (default 1024)'
+        description: 'Max sequence length'
         default: '1024'
   push:
     branches: [main]
@@ -45,21 +48,24 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: ${{ runner.os }}-hf-v5
+          key: ${{ runner.os }}-hf-v6
           restore-keys: ${{ runner.os }}-hf-
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Verify tokenization (fail fast)
+      - name: Verify tokenization (only if training)
         env:
           HF_HOME: ~/.cache/huggingface
         run: |
+          EPOCHS="${{ github.event.inputs.num_epochs }}"; [ -z "$EPOCHS" ] && EPOCHS=3
+          if [ "$EPOCHS" = "0" ]; then
+            echo "ep=0, skipping tokenization check"
+            exit 0
+          fi
           MAXSEQ="${{ github.event.inputs.max_seq_length }}"; [ -z "$MAXSEQ" ] && MAXSEQ=1024
           MODEL="${{ github.event.inputs.base_model }}"; [ -z "$MODEL" ] && MODEL="dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2"
           TRAIN="${{ github.event.inputs.train_file }}"; [ -z "$TRAIN" ] && TRAIN="data/train_50.jsonl"
-          TEST="${{ github.event.inputs.test_file }}"; [ -z "$TEST" ] && TEST="data/test_extended.jsonl"
-          python scripts/verify_tokenization.py --tokenizer "$MODEL" --files "$TRAIN" "$TEST" --max_seq_length "$MAXSEQ"
+          python scripts/verify_tokenization.py --tokenizer "$MODEL" --files "$TRAIN" --max_seq_length "$MAXSEQ"
 
       - name: Run pipeline
         env:
@@ -70,7 +76,8 @@ jobs:
           EPOCHS="${{ github.event.inputs.num_epochs }}"; [ -z "$EPOCHS" ] && EPOCHS=3
           MODEL="${{ github.event.inputs.base_model }}"; [ -z "$MODEL" ] && MODEL="dalatexcoder/Qwen2.5-0.5B-Instruct-heretic-test-v2"
           TRAIN="${{ github.event.inputs.train_file }}"; [ -z "$TRAIN" ] && TRAIN="data/train_50.jsonl"
-          TEST="${{ github.event.inputs.test_file }}"; [ -z "$TEST" ] && TEST="data/test_extended.jsonl"
+          MC="${{ github.event.inputs.test_file_mc }}"; [ -z "$MC" ] && MC="data/test_vuln_types_mc.jsonl"
+          OPEN="${{ github.event.inputs.test_file_open }}"; [ -z "$OPEN" ] && OPEN="data/test_vuln_types_open.jsonl"
           LR="${{ github.event.inputs.lr }}"; [ -z "$LR" ] && LR="2e-4"
           SEED="${{ github.event.inputs.seed }}"; [ -z "$SEED" ] && SEED=42
           MAXSEQ="${{ github.event.inputs.max_seq_length }}"; [ -z "$MAXSEQ" ] && MAXSEQ=1024
@@ -78,11 +85,10 @@ jobs:
           python scripts/run_pipeline.py \
             --base_model "$MODEL" \
             --train_file "$TRAIN" \
-            --test_file "$TEST" \
+            --test_file_mc "$MC" \
+            --test_file_open "$OPEN" \
             --num_epochs "$EPOCHS" \
-            --lr "$LR" \
-            --seed "$SEED" \
-            --max_seq_length "$MAXSEQ" \
+            --lr "$LR" --seed "$SEED" --max_seq_length "$MAXSEQ" \
             --output_dir ./lora_adapter
 
       - uses: actions/upload-artifact@v4
