@@ -12,9 +12,9 @@ on:
         required: true
         default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
       llama_version:
-        description: 'llama.cpp release tag (or "latest")'
+        description: 'llama.cpp release tag (b<digits>, e.g. b12090, or "latest")'
         required: false
-        default: 'latest'
+        default: 'b12090'
       release_tag:
         description: 'Release tag'
         required: true
@@ -30,7 +30,7 @@ permissions:
 jobs:
   build-gguf:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repo
@@ -46,7 +46,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install transformers peft accelerate sentencepiece protobuf jq
+          pip install transformers peft accelerate sentencepiece protobuf
 
       - name: Download LoRA artifact from run ${{ inputs.run_id }}
         uses: actions/download-artifact@v4
@@ -63,6 +63,109 @@ jobs:
           ls -la ./lora_adapter
           test -f ./lora_adapter/adapter_model.safetensors || { echo "Falta adapter_model.safetensors"; exit 1; }
           test -f ./lora_adapter/adapter_config.json || { echo "Falta adapter_config.json"; exit 1; }
+
+      - name: Resolve llama.cpp version
+        id: resolve
+        env:
+          LLAMA_VERSION_INPUT: ${{ inputs.llama_version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$LLAMA_VERSION_INPUT" ] || [ "$LLAMA_VERSION_INPUT" = "latest" ]; then
+            # Buscar el tag b<N> más reciente con asset bin-ubuntu-x64.tar.gz
+            LATEST=$(curl -sL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=50" \
+              | jq -r '.[] | select(.tag_name | test("^b[0-9]+$")) | select(.assets | map(.name) | any(test("bin-ubuntu-x64\\.tar\\.gz$"))) | .tag_name' \
+              | head -1)
+            if [ -z "$LATEST" ]; then
+              echo "::error::No se encontró tag b<N> con bin-ubuntu-x64.tar.gz"
+              curl -sL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5" | jq -r '.[] | "\(.tag_name): \(.assets | map(.name) | join(", "))"' || true
+              exit 1
+            fi
+          else
+            LATEST="$LLAMA_VERSION_INPUT"
+          fi
+          echo "llama.cpp tag: $LATEST"
+          echo "LLAMA_VERSION=$LATEST" >> $GITHUB_ENV
+          echo "version=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Restore llama.cpp prebuilt from cache
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: llama-bin
+          key: llama-bin-${{ env.LLAMA_VERSION }}-ubuntu-x64-v1
+          restore-keys: |
+            llama-bin-${{ env.LLAMA_VERSION }}-
+            llama-bin-
+
+      - name: Download llama.cpp prebuilt
+        id: download-llama
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        continue-on-error: true
+        env:
+          LLAMA_VERSION: ${{ env.LLAMA_VERSION }}
+        run: |
+          set -euo pipefail
+          URL="https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz"
+          echo "Descargando: $URL"
+          mkdir -p llama-bin
+          if curl -fsSL -o llama-bin.tar.gz "$URL"; then
+            tar -xzf llama-bin.tar.gz -C llama-bin
+            QT=$(find llama-bin -name 'llama-quantize' -type f | head -1)
+            if [ -z "$QT" ]; then
+              echo "llama-quantize no encontrado tras descomprimir; se intentará compilar"
+              rm -rf llama-bin
+              exit 1
+            fi
+            chmod +x "$QT"
+            echo "Descarga OK: $QT"
+          else
+            echo "Descarga falló; se intentará compilar"
+            rm -rf llama-bin
+            exit 1
+          fi
+
+      - name: Fallback build llama.cpp from source
+        if: steps.cache-llama.outputs.cache-hit != 'true' && steps.download-llama.outcome != 'success'
+        env:
+          LLAMA_VERSION: ${{ env.LLAMA_VERSION }}
+        run: |
+          set -euo pipefail
+          echo "Compilando llama.cpp desde fuente (tag $LLAMA_VERSION)..."
+          git clone --depth 1 --branch "$LLAMA_VERSION" https://github.com/ggml-org/llama.cpp.git llama-src || \
+            git clone --depth 1 https://github.com/ggml-org/llama.cpp.git llama-src
+          cd llama-src
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF
+          cmake --build build --config Release -j"$(nproc)" --target llama-quantize
+          mkdir -p "${{ github.workspace }}/llama-bin"
+          cp build/bin/llama-quantize "${{ github.workspace }}/llama-bin/"
+          echo "Compilación OK"
+
+      - name: Locate llama-quantize
+        run: |
+          set -euo pipefail
+          QT=$(find llama-bin -name 'llama-quantize' -type f | head -1)
+          if [ -z "$QT" ]; then
+            echo "::error::llama-quantize no encontrado ni por descarga ni por compilación"
+            find . -name 'llama-quantize*' || true
+            exit 1
+          fi
+          chmod +x "$QT"
+          echo "LLAMA_QUANTIZE=$(realpath "$QT")" >> $GITHUB_ENV
+          "$QT" 2>&1 | head -3 || true
+
+      - name: Clone llama.cpp source (conversion script, same tag)
+        env:
+          LLAMA_VERSION: ${{ env.LLAMA_VERSION }}
+        run: |
+          set -euo pipefail
+          if [ ! -d llama-src ]; then
+            git clone --depth 1 --branch "$LLAMA_VERSION" https://github.com/ggml-org/llama.cpp.git llama-src || \
+              git clone --depth 1 https://github.com/ggml-org/llama.cpp.git llama-src
+          fi
+          pip install -r llama-src/requirements.txt
+          echo "LLAMA_SRC_DIR=$(pwd)/llama-src" >> $GITHUB_ENV
+          ls llama-src/convert_hf_to_gguf.py || { echo "convert_hf_to_gguf.py no encontrado"; exit 1; }
 
       - name: Merge LoRA with base model
         env:
@@ -108,52 +211,15 @@ jobs:
               print("extra_special_tokens ausente; nada que parchear")
           else:
               print("extra_special_tokens ya es dict; nada que parchear")
-          # Verificación: el tokenizer debe cargar sin error
           from transformers import AutoTokenizer
           AutoTokenizer.from_pretrained("./merged_model", trust_remote_code=True)
           print("Tokenizer recargado OK")
           PY
 
-      - name: Download llama.cpp prebuilt binaries + conversion script (same tag)
-        env:
-          LLAMA_VERSION_INPUT: ${{ inputs.llama_version }}
-        run: |
-          set -euo pipefail
-          LLAMA_VERSION="$LLAMA_VERSION_INPUT"
-          if [ "$LLAMA_VERSION" = "latest" ] || [ -z "$LLAMA_VERSION" ]; then
-            LLAMA_VERSION=$(curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest" | jq -r .tag_name)
-            echo "Resolved latest llama.cpp version: $LLAMA_VERSION"
-          fi
-          echo "LLAMA_VERSION=$LLAMA_VERSION" >> $GITHUB_ENV
-
-          ASSET_URL=$(curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/${LLAMA_VERSION}" \
-            | jq -r '.assets[] | select(.name | test("bin-ubuntu-x64\\.zip$")) | .browser_download_url' | head -1)
-          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
-            echo "ERROR: no bin-ubuntu-x64.zip asset for $LLAMA_VERSION"
-            curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/${LLAMA_VERSION}" | jq -r '.assets[].name'
-            exit 1
-          fi
-          echo "Descargando: $ASSET_URL"
-          curl -fsSL -o llama-bin.zip "$ASSET_URL"
-          mkdir -p llama-bin
-          unzip -q llama-bin.zip -d llama-bin
-          QT=$(find llama-bin -name 'llama-quantize' -type f | head -1)
-          if [ -z "$QT" ]; then echo "llama-quantize no encontrado en el zip"; exit 1; fi
-          chmod +x "$QT"
-          echo "LLAMA_QUANTIZE=$QT" >> $GITHUB_ENV
-          "$QT" 2>&1 | head -3 || true
-
-          # Script de conversión, del MISMO tag (compatibilidad de formato GGUF)
-          git clone --depth 1 --branch "$LLAMA_VERSION" https://github.com/ggerganov/llama.cpp.git llama-src
-          pip install -r llama-src/requirements.txt
-          echo "LLAMA_SRC_DIR=$(pwd)/llama-src" >> $GITHUB_ENV
-
       - name: Patch convert_hf_to_gguf.py (Qwen BPE fallback)
         run: |
           python - <<'PY'
           import re, pathlib
-          # En versiones recientes el script está en conversion/qwen.py;
-          # si no existe, buscar el bloque en cualquier módulo.
           candidates = list(pathlib.Path("llama-src/conversion").glob("qwen*.py"))
           if not candidates:
               print("No se encontró qwen.py; el conversor puede ya manejar BPE")
@@ -199,13 +265,23 @@ jobs:
               "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-${Q}.gguf" "$Q"
           done
 
+      - name: Package LoRA adapter for release
+        id: pack-lora
+        run: |
+          set -euo pipefail
+          TARBALL="${{ github.workspace }}/centinela0.1-lora-adapter-run-${{ inputs.run_id }}.tar.gz"
+          tar -czf "$TARBALL" -C ./lora_adapter .
+          ls -lh "$TARBALL"
+          echo "lora_tarball=$TARBALL" >> $GITHUB_OUTPUT
+
       - name: Verify generated files
         run: |
-          echo "Archivos GGUF generados:"
-          ls -lh ${{ github.workspace }}/*.gguf
+          echo "Archivos generados:"
+          ls -lh ${{ github.workspace }}/*.gguf ${{ github.workspace }}/*.tar.gz
           for f in ${{ github.workspace }}/*.gguf; do
             [ -s "$f" ] || { echo "Archivo vacío: $f"; exit 1; }
           done
+          [ -s "${{ steps.pack-lora.outputs.lora_tarball }}" ] || { echo "LoRA tarball vacío"; exit 1; }
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -223,3 +299,4 @@ jobs:
             ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q4_K_M.gguf
             ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q3_K_M.gguf
             ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q2_K.gguf
+            ${{ steps.pack-lora.outputs.lora_tarball }}
