@@ -4,19 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'ID de la run que contiene el artefacto LoRA (centinela-run-<id>)'
+        description: 'Run ID with the LoRA artifact (centinela-run-<id>)'
         required: true
         default: '41726866511'
       base_model:
-        description: 'Modelo base de HuggingFace'
+        description: 'Base HuggingFace model'
         required: true
         default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      llama_version:
+        description: 'llama.cpp release tag (or "latest")'
+        required: false
+        default: 'latest'
       release_tag:
-        description: 'Tag del release (se creará si no existe)'
+        description: 'Release tag'
         required: true
         default: 'v0.1-cybersec-abliterated'
       release_name:
-        description: 'Título del release'
+        description: 'Release title'
         required: false
         default: 'Centinela 0.1 - 0.5B Cybersec Abliterated GGUF'
 
@@ -26,21 +30,23 @@ permissions:
 jobs:
   build-gguf:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python (pip cache)
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (CPU torch)
         run: |
           pip install --upgrade pip
-          pip install torch transformers peft accelerate sentencepiece protobuf
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install transformers peft accelerate sentencepiece protobuf jq
 
       - name: Download LoRA artifact from run ${{ inputs.run_id }}
         uses: actions/download-artifact@v4
@@ -87,41 +93,116 @@ jobs:
           print(f"Modelo fusionado guardado en {out_dir}")
           PY
 
-      - name: Clone and build llama.cpp (convert + quantize tools)
+      - name: Patch tokenizer_config.json (extra_special_tokens list -> dict)
         run: |
-          git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
-          cd llama.cpp
-          pip install -r requirements.txt
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
-          cmake --build build --config Release -j$(nproc) --target llama-quantize
-          echo "LLAMA_CPP_DIR=$(pwd)" >> $GITHUB_ENV
+          python - <<'PY'
+          import json, pathlib
+          p = pathlib.Path("./merged_model/tokenizer_config.json")
+          cfg = json.loads(p.read_text())
+          est = cfg.get("extra_special_tokens")
+          if isinstance(est, list):
+              cfg["extra_special_tokens"] = {t: t for t in est}
+              p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
+              print(f"Parcheado: {len(est)} tokens convertidos a dict")
+          elif est is None:
+              print("extra_special_tokens ausente; nada que parchear")
+          else:
+              print("extra_special_tokens ya es dict; nada que parchear")
+          # Verificación: el tokenizer debe cargar sin error
+          from transformers import AutoTokenizer
+          AutoTokenizer.from_pretrained("./merged_model", trust_remote_code=True)
+          print("Tokenizer recargado OK")
+          PY
+
+      - name: Download llama.cpp prebuilt binaries + conversion script (same tag)
+        env:
+          LLAMA_VERSION_INPUT: ${{ inputs.llama_version }}
+        run: |
+          set -euo pipefail
+          LLAMA_VERSION="$LLAMA_VERSION_INPUT"
+          if [ "$LLAMA_VERSION" = "latest" ] || [ -z "$LLAMA_VERSION" ]; then
+            LLAMA_VERSION=$(curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest" | jq -r .tag_name)
+            echo "Resolved latest llama.cpp version: $LLAMA_VERSION"
+          fi
+          echo "LLAMA_VERSION=$LLAMA_VERSION" >> $GITHUB_ENV
+
+          ASSET_URL=$(curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/${LLAMA_VERSION}" \
+            | jq -r '.assets[] | select(.name | test("bin-ubuntu-x64\\.zip$")) | .browser_download_url' | head -1)
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "ERROR: no bin-ubuntu-x64.zip asset for $LLAMA_VERSION"
+            curl -sL "https://api.github.com/repos/ggerganov/llama.cpp/releases/tags/${LLAMA_VERSION}" | jq -r '.assets[].name'
+            exit 1
+          fi
+          echo "Descargando: $ASSET_URL"
+          curl -fsSL -o llama-bin.zip "$ASSET_URL"
+          mkdir -p llama-bin
+          unzip -q llama-bin.zip -d llama-bin
+          QT=$(find llama-bin -name 'llama-quantize' -type f | head -1)
+          if [ -z "$QT" ]; then echo "llama-quantize no encontrado en el zip"; exit 1; fi
+          chmod +x "$QT"
+          echo "LLAMA_QUANTIZE=$QT" >> $GITHUB_ENV
+          "$QT" 2>&1 | head -3 || true
+
+          # Script de conversión, del MISMO tag (compatibilidad de formato GGUF)
+          git clone --depth 1 --branch "$LLAMA_VERSION" https://github.com/ggerganov/llama.cpp.git llama-src
+          pip install -r llama-src/requirements.txt
+          echo "LLAMA_SRC_DIR=$(pwd)/llama-src" >> $GITHUB_ENV
+
+      - name: Patch convert_hf_to_gguf.py (Qwen BPE fallback)
+        run: |
+          python - <<'PY'
+          import re, pathlib
+          # En versiones recientes el script está en conversion/qwen.py;
+          # si no existe, buscar el bloque en cualquier módulo.
+          candidates = list(pathlib.Path("llama-src/conversion").glob("qwen*.py"))
+          if not candidates:
+              print("No se encontró qwen.py; el conversor puede ya manejar BPE")
+              raise SystemExit(0)
+          p = candidates[0]
+          src = p.read_text()
+          pattern = re.compile(
+              r'(def set_vocab\(self\):\n)(\s*)(self\._set_vocab_sentencepiece\(\))',
+              re.MULTILINE
+          )
+          replacement = (
+              r'\1'
+              r'\2try:\n'
+              r'\2    \3\n'
+              r'\2except FileNotFoundError:\n'
+              r'\2    print("WARNING: tokenizer.model missing, falling back to BPE")\n'
+              r'\2    self._set_vocab_gpt2()'
+          )
+          new_src, n = pattern.subn(replacement, src)
+          if n > 0:
+              p.write_text(new_src)
+              print(f"Parcheado {p} ({n} ocurrencia/s)")
+          else:
+              print(f"Patrón no encontrado en {p}; probablemente ya maneja el fallback")
+          PY
 
       - name: Convert HF to GGUF (F16)
         env:
           MERGED_DIR: ./merged_model
+          FINAL_NAME: centinela0.1-0.5B-Instruct-cybersec-abliterated-F16.gguf
         run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
+          cd "$LLAMA_SRC_DIR"
           python convert_hf_to_gguf.py "${{ github.workspace }}/merged_model" \
-            --outfile "${{ github.workspace }}/model-f16.gguf" \
+            --outfile "${{ github.workspace }}/$FINAL_NAME" \
             --outtype f16
 
       - name: Quantize to target formats
         run: |
-          cd ${{ env.LLAMA_CPP_DIR }}
-          F16="${{ github.workspace }}/model-f16.gguf"
-          # Copia F16 con el nombre final
-          cp "$F16" "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-F16.gguf"
-          # Cuantizaciones K-quant y legacy
+          F16="${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-F16.gguf"
           for Q in Q8_0 Q6_K Q5_K_M Q4_K_M Q3_K_M Q2_K; do
             echo "Cuantizando a $Q..."
-            ./build/bin/llama-quantize "$F16" "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-${Q}.gguf" "$Q"
+            "$LLAMA_QUANTIZE" "$F16" \
+              "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-${Q}.gguf" "$Q"
           done
 
       - name: Verify generated files
         run: |
           echo "Archivos GGUF generados:"
           ls -lh ${{ github.workspace }}/*.gguf
-          # Verificación mínima: que existan y no estén vacíos
           for f in ${{ github.workspace }}/*.gguf; do
             [ -s "$f" ] || { echo "Archivo vacío: $f"; exit 1; }
           done
