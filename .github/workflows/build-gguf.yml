@@ -1,0 +1,144 @@
+name: Build and Release GGUF (Centinela)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID de la run que contiene el artefacto LoRA (centinela-run-<id>)'
+        required: true
+        default: '41726866511'
+      base_model:
+        description: 'Modelo base de HuggingFace'
+        required: true
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      release_tag:
+        description: 'Tag del release (se creará si no existe)'
+        required: true
+        default: 'v0.1-cybersec-abliterated'
+      release_name:
+        description: 'Título del release'
+        required: false
+        default: 'Centinela 0.1 - 0.5B Cybersec Abliterated GGUF'
+
+permissions:
+  contents: write
+
+jobs:
+  build-gguf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch transformers peft accelerate sentencepiece protobuf
+
+      - name: Download LoRA artifact from run ${{ inputs.run_id }}
+        uses: actions/download-artifact@v4
+        with:
+          name: centinela-run-${{ inputs.run_id }}
+          path: ./lora_adapter
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.run_id }}
+
+      - name: Verify adapter files
+        run: |
+          echo "Contenido del artefacto:"
+          ls -la ./lora_adapter
+          test -f ./lora_adapter/adapter_model.safetensors || { echo "Falta adapter_model.safetensors"; exit 1; }
+          test -f ./lora_adapter/adapter_config.json || { echo "Falta adapter_config.json"; exit 1; }
+
+      - name: Merge LoRA with base model
+        env:
+          BASE_MODEL: ${{ inputs.base_model }}
+          ADAPTER_PATH: ./lora_adapter
+          MERGED_DIR: ./merged_model
+        run: |
+          python - <<'PY'
+          import os, torch
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+          from peft import PeftModel
+
+          base_id = os.environ['BASE_MODEL']
+          adapter_path = os.environ['ADAPTER_PATH']
+          out_dir = os.environ['MERGED_DIR']
+
+          print(f"Cargando modelo base {base_id} en fp16...")
+          base = AutoModelForCausalLM.from_pretrained(
+              base_id, torch_dtype=torch.float16, low_cpu_mem_usage=True, trust_remote_code=True
+          )
+          print(f"Cargando adaptador LoRA desde {adapter_path}...")
+          model = PeftModel.from_pretrained(base, adapter_path)
+          print("Fusionando...")
+          merged = model.merge_and_unload()
+          merged.save_pretrained(out_dir, safe_serialization=True)
+          tok = AutoTokenizer.from_pretrained(base_id, trust_remote_code=True)
+          tok.save_pretrained(out_dir)
+          print(f"Modelo fusionado guardado en {out_dir}")
+          PY
+
+      - name: Clone and build llama.cpp (convert + quantize tools)
+        run: |
+          git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
+          cd llama.cpp
+          pip install -r requirements.txt
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
+          cmake --build build --config Release -j$(nproc) --target llama-quantize
+          echo "LLAMA_CPP_DIR=$(pwd)" >> $GITHUB_ENV
+
+      - name: Convert HF to GGUF (F16)
+        env:
+          MERGED_DIR: ./merged_model
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          python convert_hf_to_gguf.py "${{ github.workspace }}/merged_model" \
+            --outfile "${{ github.workspace }}/model-f16.gguf" \
+            --outtype f16
+
+      - name: Quantize to target formats
+        run: |
+          cd ${{ env.LLAMA_CPP_DIR }}
+          F16="${{ github.workspace }}/model-f16.gguf"
+          # Copia F16 con el nombre final
+          cp "$F16" "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-F16.gguf"
+          # Cuantizaciones K-quant y legacy
+          for Q in Q8_0 Q6_K Q5_K_M Q4_K_M Q3_K_M Q2_K; do
+            echo "Cuantizando a $Q..."
+            ./build/bin/llama-quantize "$F16" "${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-${Q}.gguf" "$Q"
+          done
+
+      - name: Verify generated files
+        run: |
+          echo "Archivos GGUF generados:"
+          ls -lh ${{ github.workspace }}/*.gguf
+          # Verificación mínima: que existan y no estén vacíos
+          for f in ${{ github.workspace }}/*.gguf; do
+            [ -s "$f" ] || { echo "Archivo vacío: $f"; exit 1; }
+          done
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-F16.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q8_0.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q6_K.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q5_K_M.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q4_K_M.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q3_K_M.gguf
+            ${{ github.workspace }}/centinela0.1-0.5B-Instruct-cybersec-abliterated-Q2_K.gguf
