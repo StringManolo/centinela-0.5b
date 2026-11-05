@@ -200,6 +200,15 @@ def compute_metrics(rows, ci=False, n_boot=1000):
     det = lse(S[:, VULN_IDX]) - S[:, SAFE_IDX]
     forced = np.asarray(VULN_IDX)[S[:, VULN_IDX].argmax(1)]
     forced_ok = (forced == y).astype(float)
+    vmask = is_vuln & (y != SAFE_IDX)
+    if vmask.any():
+        sub = S[vmask][:, VULN_IDX]
+        pos = np.asarray([VULN_IDX.index(c) for c in y[vmask]])
+        correct = sub[np.arange(len(pos)), pos]
+        rank = 1 + (sub > correct[:, None]).sum(1)
+        type_mrr, type_top3 = float((1.0 / rank).mean()), float((rank <= 3).mean())
+    else:
+        type_mrr = type_top3 = float("nan")
 
     recalls = {}
     for c in range(len(LABELS)):
@@ -221,6 +230,8 @@ def compute_metrics(rows, ci=False, n_boot=1000):
         "det_recall_vuln": rv,
         "det_recall_safe": rs,
         "type_acc_forced": float(forced_ok[is_vuln].mean()) if is_vuln.any() else float("nan"),
+        "type_mrr": type_mrr,
+        "type_top3": type_top3,
         "pair_acc": float(np.mean([(det[v] > det[s]) + 0.5 * (det[v] == det[s]) for v, s in prs]))
         if prs else float("nan"),
         "mean_logp_correct": float(logp[np.arange(n), y].mean()),
@@ -416,6 +427,16 @@ def eval_rows(model, enc, rows, cond, n_templates, mode):
     return out
 
 
+def average_rows(rows_a, rows_b):
+    """Test-time augmentation at no extra cost: mean log-prob of the same row under two different prompts."""
+    by_id = {r["id"]: r for r in rows_b}
+    out = []
+    for r in rows_a:
+        s = [(x + y) / 2.0 for x, y in zip(r["scores"], by_id[r["id"]]["scores"])]
+        out.append(dict(r, scores=s, cond="tta2", template=r["template"] + "+" + by_id[r["id"]]["template"]))
+    return out
+
+
 def eval_point(model, enc, test_by_set, probe_rows, shift, n_templates, mode, ci=False, keep_scores=False):
     was_training = model.training
     model.eval()
@@ -427,8 +448,10 @@ def eval_point(model, enc, test_by_set, probe_rows, shift, n_templates, mode, ci
             metrics[key]["confusion"] = confusion(er)
 
     for sname, rows in test_by_set.items():
+        ers = {}
         for cond in (["seen", "shift"] if shift else ["seen"]):
             er = eval_rows(model, enc, rows, cond, n_templates, mode)
+            ers[cond] = er
             add(f"{sname}/{cond}", er)
             subs = sorted({r["subtype"] for r in er if r.get("subtype")})
             if len(subs) > 1:  # e.g. iid[plain] vs iid[insufficient]: same forward passes, split afterwards
@@ -438,6 +461,11 @@ def eval_point(model, enc, test_by_set, probe_rows, shift, n_templates, mode, ci
                         add(f"{sname}[{sub}]/{cond}", part)
             if keep_scores:
                 dump += er
+        if shift:
+            tta = average_rows(ers["seen"], ers["shift"])
+            add(f"{sname}/tta2", tta)
+            if keep_scores:
+                dump += tta
     if probe_rows:
         er = eval_rows(model, enc, probe_rows, "seen", n_templates, mode)
         add("train/seen", er)
@@ -449,9 +477,10 @@ def eval_point(model, enc, test_by_set, probe_rows, shift, n_templates, mode, ci
 
 
 # ----------------------------------------------------------------------------- reporting
-KEY_METRICS = ["det_auroc", "pair_acc", "type_acc_forced", "mean_logp_correct"]
-CHANCE = {"det_auroc": 0.5, "pair_acc": 0.5, "type_acc_forced": 0.1,
-          "mean_logp_correct": round(-math.log(len(LABELS)), 3)}
+KEY_METRICS = ["det_auroc", "pair_acc", "type_acc_forced", "type_mrr", "mean_logp_correct"]
+_H = sum(1.0 / k for k in range(1, len(VULN_IDX) + 1))
+CHANCE = {"det_auroc": 0.5, "pair_acc": 0.5, "type_acc_forced": 0.1, "type_mrr": round(_H / len(VULN_IDX), 3),
+          "type_top3": 0.3, "mean_logp_correct": round(-math.log(len(LABELS)), 3)}
 
 
 def write_curve_csv(path, curve):
@@ -476,8 +505,8 @@ def summary_markdown(cfg, step0, final):
              f"(~{cfg['total_steps'] / max(1, cfg['steps_per_epoch']):.1f} epochs), lr **{cfg['lr']}**, "
              f"seed **{cfg['seed']}**, permute_labels **{cfg['permute_labels']}**", "",
              "step 0 -> final  [95% CI at final]. Chance: det_auroc 0.5, pair_acc 0.5, "
-             "type_forced 0.1, mean_logp -2.398.", "",
-             "| set/cond | det_auroc | pair_acc | type_forced | mean_logp |", "|---|---|---|---|---|"]
+             "type_forced 0.1, type_mrr 0.293, mean_logp -2.398.", "",
+             "| set/cond | det_auroc | pair_acc | type_forced | type_mrr | mean_logp |", "|---|---|---|---|---|---|"]
     for k in sorted(final):
         cells = []
         for m in KEY_METRICS:
@@ -518,6 +547,21 @@ def parse_args(argv=None):
     ap.add_argument("--lora_r", type=int, default=8)
     ap.add_argument("--lora_targets", default="q_proj,v_proj", help="comma list or 'all-linear'")
     ap.add_argument("--lora_dropout", type=float, default=0.05)
+    ap.add_argument("--peft", choices=["lora", "ia3", "loha", "lokr"], default="lora",
+                    help="adapter family (ia3 needs a much higher lr, ~3e-3)")
+    ap.add_argument("--lora_plus_ratio", type=float, default=0.0, help="LoRA+: lr(B)/lr(A) ratio (0 = off)")
+    ap.add_argument("--lora_layers", choices=["all", "upper_half"], default="all",
+                    help="adapt all layers or only the upper half (layer freezing; needs an explicit target list)")
+    ap.add_argument("--label_smoothing", type=float, default=0.0, help="only with --loss label_ce")
+    ap.add_argument("--rslora", action="store_true", help="rank-stabilised LoRA scaling (alpha/sqrt(r))")
+    ap.add_argument("--dora", action="store_true", help="DoRA (slower on CPU)")
+    ap.add_argument("--weight_decay", type=float, default=0.0)
+    ap.add_argument("--neftune_alpha", type=float, default=0.0, help="NEFTune embedding noise (0 = off)")
+    ap.add_argument("--loss", choices=["lm", "label_ce"], default="lm",
+                    help="lm = token loss on the answer; label_ce = cross-entropy restricted to the 11 label "
+                         "first-tokens at the answer position (matches first-token scoring; needs distinct first tokens)")
+    ap.add_argument("--time_budget_min", type=float, default=0,
+                    help="stop TRAINING after this many minutes (0 = off); the final eval still runs")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--eval_every", type=int, default=0, help="optimizer steps between evals (0 = every epoch)")
     ap.add_argument("--eval_sets", default="", help="comma list of test sets to evaluate (default: all in file)")
@@ -601,6 +645,9 @@ def main():
     elif mode == "first" and not enc.first_unique:
         sys.exit("--score_mode first needs a distinct first token per label (see label tokens above)")
     print(f"  label tokens {enc.label_tokens}; distinct first tokens: {enc.first_unique}; score mode: {mode}")
+    if args.loss == "label_ce" and mode != "first":
+        sys.exit("--loss label_ce trains the first label token only, so it needs --score_mode first "
+                 "(distinct first tokens per label)")
     per_type = len(train_rows) / 2 / len(VULN_TYPES)
     if args.train_templates > 1 and per_type < args.train_templates:
         print(f"  WARNING: {per_type:.1f} pairs per type < {args.train_templates} templates: templates cannot be "
@@ -617,10 +664,35 @@ def main():
     set_seed(args.seed)  # LoRA init must be seeded: it happens before the Trainer is built
     targets = "all-linear" if args.lora_targets == "all-linear" else \
         [t.strip() for t in args.lora_targets.split(",") if t.strip()]
-    model = get_peft_model(model, LoraConfig(
-        task_type=TaskType.CAUSAL_LM, r=args.lora_r, lora_alpha=2 * args.lora_r,
-        lora_dropout=args.lora_dropout, target_modules=targets, bias="none"))
+    if args.label_smoothing and args.loss != "label_ce":
+        sys.exit("--label_smoothing only applies to --loss label_ce")
+    if args.peft == "ia3":
+        from peft import IA3Config
+        peft_cfg = IA3Config(task_type=TaskType.CAUSAL_LM, target_modules=["k_proj", "v_proj", "down_proj"],
+                             feedforward_modules=["down_proj"])
+    elif args.peft in ("loha", "lokr"):
+        from peft import LoHaConfig, LoKrConfig
+        peft_cfg = (LoHaConfig if args.peft == "loha" else LoKrConfig)(
+            task_type=TaskType.CAUSAL_LM, r=args.lora_r, alpha=2 * args.lora_r, target_modules=targets)
+    else:
+        extra = {}
+        if args.lora_layers == "upper_half":
+            if targets == "all-linear":
+                sys.exit("--lora_layers upper_half needs an explicit --lora_targets list, not all-linear")
+            n_layers = model.config.num_hidden_layers
+            extra["layers_to_transform"] = list(range(n_layers // 2, n_layers))
+        peft_cfg = LoraConfig(task_type=TaskType.CAUSAL_LM, r=args.lora_r, lora_alpha=2 * args.lora_r,
+                              lora_dropout=args.lora_dropout, target_modules=targets, bias="none",
+                              use_rslora=args.rslora, use_dora=args.dora, **extra)
+    model = get_peft_model(model, peft_cfg)
     model.print_trainable_parameters()
+    optimizers = (None, None)
+    if args.lora_plus_ratio > 0:
+        if args.peft != "lora":
+            sys.exit("--lora_plus_ratio only applies to --peft lora")
+        from peft.optimizers import create_loraplus_optimizer
+        optimizers = (create_loraplus_optimizer(model=model, optimizer_cls=torch.optim.AdamW, lr=args.lr,
+                                                loraplus_lr_ratio=args.lora_plus_ratio), None)
 
     eff_batch = args.batch_size * args.grad_accum
     steps_per_epoch = max(math.ceil(len(feats) / args.batch_size) // args.grad_accum, 1)
@@ -658,12 +730,19 @@ def main():
             # copy: DataCollatorForSeq2Seq re-assigns feature["labels"] when padding (batch_size > 1)
             return dict(self.items[i])
 
+    budget_stop = {}
+    t_train0 = time.time()
+
     class EvalCallback(TrainerCallback):
         def __init__(self):
             self.ptr = 0
 
         def on_step_end(self, a, state, control, **kw):
             s = state.global_step
+            if args.time_budget_min and (time.time() - t_train0) / 60 > args.time_budget_min and not budget_stop:
+                budget_stop["stopped_at_step"] = s
+                control.should_training_stop = True
+                print(f"  [time budget] {args.time_budget_min} min reached at step {s}: stopping training")
             if s % eval_every == 0 and s < state.max_steps:
                 hist = [h["loss"] for h in state.log_history[self.ptr:] if "loss" in h]
                 self.ptr = len(state.log_history)
@@ -674,18 +753,39 @@ def main():
                 print(f"  [step {s}] loss={curve[-1]['train_loss']} ({time.time() - t1:.0f}s eval) " +
                       " | ".join(f"{k}: auroc={v.get('det_auroc')} type={v.get('type_acc_forced')}"
                                  for k, v in sorted(m.items())))
+            return control
+
+    cand_first = torch.tensor([enc.score_ids[l][0] for l in LABELS], dtype=torch.long)
+
+    class LabelCETrainer(Trainer):
+        """Cross-entropy over the 11 label first-tokens at the position that predicts the answer."""
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            labels = inputs["labels"]
+            out = model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+            rows = torch.arange(labels.size(0), device=labels.device)
+            first = (labels != -100).int().argmax(dim=1)          # first supervised position (first max wins)
+            cand = cand_first.to(labels.device)
+            match = labels[rows, first][:, None] == cand[None, :]
+            if not bool(match.any(dim=1).all()):
+                raise RuntimeError("label_ce: first supervised token is not a label first-token")
+            target = match.int().argmax(dim=1)
+            logits = out.logits[rows, first - 1][:, cand].float()  # position first-1 predicts token `first`
+            loss = torch.nn.functional.cross_entropy(logits, target, label_smoothing=args.label_smoothing)
+            return (loss, out) if return_outputs else loss
 
     targs = TrainingArguments(
         output_dir="./trainer_out", num_train_epochs=args.num_epochs,
         max_steps=args.max_steps if args.max_steps > 0 else -1,
         per_device_train_batch_size=args.batch_size, gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr, lr_scheduler_type=args.lr_scheduler, warmup_steps=args.warmup_steps,
-        weight_decay=0.0, logging_steps=1, save_strategy="no", report_to="none",
+        weight_decay=args.weight_decay, neftune_noise_alpha=(args.neftune_alpha or None), logging_steps=1, save_strategy="no", report_to="none",
         use_cpu=True, fp16=False, bf16=False, dataloader_pin_memory=False,
         remove_unused_columns=False, seed=args.seed, disable_tqdm=True)
-    trainer = Trainer(model=model, args=targs, train_dataset=ListDataset(feats),
+    TrainerCls = LabelCETrainer if args.loss == "label_ce" else Trainer
+    trainer = TrainerCls(model=model, args=targs, train_dataset=ListDataset(feats),
                       data_collator=DataCollatorForSeq2Seq(tok, padding=True, label_pad_token_id=-100),
-                      callbacks=[EvalCallback()])
+                      callbacks=[EvalCallback()], optimizers=optimizers)
     t0 = time.time()
     result = trainer.train()
     timings["train_s"] = round(time.time() - t0, 2)
@@ -714,6 +814,7 @@ def main():
                          "peft": peft.__version__},
                timestamp=datetime.now(timezone.utc).isoformat(), labels=LABELS, chance=CHANCE, shortcut_baselines=baselines,
                score_mode_resolved=mode, label_tokens=enc.label_tokens,
+               stopped_by_time_budget=budget_stop.get("stopped_at_step"),
                train_runtime=result.metrics.get("train_runtime"))
     with open(os.path.join(args.output_dir, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump({"config": cfg, "timings": timings, "curve": curve}, f, indent=2, ensure_ascii=False)

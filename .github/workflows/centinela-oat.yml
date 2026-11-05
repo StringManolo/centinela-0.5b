@@ -1,0 +1,130 @@
+name: Centinela - comparacion de tecnicas (una a una)
+
+# plan   -> builds the matrix: baseline x N seeds (noise estimate) + every technique, each ONE change vs baseline
+# run    -> every cell in parallel (own runner, training capped at --time_budget_min, job capped at 75 min)
+# report -> compares each technique with the baseline noise and writes the table to the run Summary
+#
+# Cost: about (baseline seeds + techniques x seeds) x ~50 min of runner time (default 23 jobs ~ 19 h).
+# On a PRIVATE repo of a free account that exceeds the 2,000 free minutes per month; public repos are free.
+on:
+  workflow_dispatch:
+    inputs:
+      base_model:
+        description: 'Base model'
+        required: false
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      baseline_seeds:
+        description: 'Baseline seeds (their spread = noise level; use >= 4 for usable significance)'
+        required: false
+        default: '42,7,123,11,99'
+      technique_seeds:
+        description: 'Seeds per technique'
+        required: false
+        default: '42'
+      techniques:
+        description: 'Comma list or "all" (targets_all,rank32,rslora,dora,lr3e4,lora_plus,label_ce,label_ce_smooth,neftune,dropout02,wd01,templates5,cosine,small_batch,upper_half,ia3,loha,lokr)'
+        required: false
+        default: 'all'
+      max_steps:
+        description: 'Optimizer steps per run (150 = 6 epochs on 50 pairs)'
+        required: false
+        default: '150'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Build matrix
+        id: plan
+        env:
+          IN_BASELINE_SEEDS: ${{ inputs.baseline_seeds }}
+          IN_TECH_SEEDS: ${{ inputs.technique_seeds }}
+          IN_TECHNIQUES: ${{ inputs.techniques }}
+          IN_MAX_STEPS: ${{ inputs.max_steps }}
+        run: |
+          python -m pip install --quiet numpy
+          MATRIX=$(python scripts/oat.py plan \
+            --baseline_seeds "$IN_BASELINE_SEEDS" --technique_seeds "$IN_TECH_SEEDS" \
+            --techniques "$IN_TECHNIQUES" --max_steps "$IN_MAX_STEPS")
+          echo "$MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    name: ${{ matrix.label }} s${{ matrix.seed }}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-centinela-v3
+          restore-keys: |
+            ${{ runner.os }}-hf-centinela-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Train and evaluate
+        env:
+          TOKENIZERS_PARALLELISM: "false"
+          OMP_NUM_THREADS: "4"
+          PYTHONUNBUFFERED: "1"
+          BASE_MODEL: ${{ inputs.base_model }}
+          SEED: ${{ matrix.seed }}
+          RUN_ARGS: ${{ matrix.args }}
+        run: |
+          # shellcheck disable=SC2086  # RUN_ARGS is intentionally word-split
+          python scripts/run_pipeline.py --base_model "$BASE_MODEL" \
+            --train_file data/train.jsonl --test_file data/test.jsonl \
+            --output_dir ./lora_adapter --seed "$SEED" $RUN_ARGS
+      - name: Upload metrics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-oat-${{ matrix.label }}-s${{ matrix.seed }}
+          path: |
+            lora_adapter/metrics.json
+            lora_adapter/scores_final.jsonl
+            lora_adapter/curve.csv
+          if-no-files-found: ignore
+
+  report:
+    needs: [plan, run]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python -m pip install --quiet numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: centinela-oat-*
+          path: results
+      - name: Build report
+        env:
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+        run: python scripts/oat.py report --dir results --plan-json "$MATRIX" --out report.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oat-report
+          path: report.md

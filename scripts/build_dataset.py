@@ -10,6 +10,7 @@ Design (see the chat discussion):
       train     sinks/APIs "set A"
       iid       same sinks/APIs as train, new identifiers/contexts
       ood_near  same vulnerability pattern, DIFFERENT sinks/APIs/frameworks ("set B")
+      easy      1 minimal canonical pair per type: a sanity check of general competence
       ood_hard  1 pair per type on set-B sinks where the VULNERABLE twin has a mitigation-looking but
                 bypassable check: a detector of "mitigation idioms" cannot solve it
   * Some vulnerable snippets contain an *insufficient* mitigation (bypassable
@@ -39,7 +40,7 @@ VULN_TYPES = [
     "SSRF", "PROTO_POLLUTION", "OPEN_REDIRECT", "AUTHZ", "WEAK_CRYPTO",
 ]
 SAFE = "SAFE"
-N_TRAIN, N_IID, N_OOD, N_HARD = 5, 2, 3, 1
+N_TRAIN, N_IID, N_OOD, N_HARD, N_EASY = 5, 2, 3, 1, 1
 
 # Pairs whose VULNERABLE twin carries an insufficient (bypassable) mitigation, keyed (set, type, pair index).
 # Everything in ood_hard is insufficient by construction. Used for the `subtype` field.
@@ -1982,6 +1983,82 @@ function encryptNote(text, key) {
 ''')),
 ]
 
+# ---------------------------------------------------------------- easy
+# One minimal, canonical pair per type (textbook form, no look-alike mitigations). A sanity check of
+# general competence: if a technique hurts here, it is breaking basic skills.
+DATA["XSS"]["easy"] = [(
+    P(r'''
+document.getElementById('out').innerHTML = location.hash.slice(1);
+'''), P(r'''
+document.getElementById('out').textContent = location.hash.slice(1);
+'''))]
+
+DATA["SQLI"]["easy"] = [(
+    P(r'''
+db.query("SELECT * FROM users WHERE id = " + req.query.id);
+'''), P(r'''
+db.query('SELECT * FROM users WHERE id = ?', [req.query.id]);
+'''))]
+
+DATA["CMDI"]["easy"] = [(
+    P(r'''
+exec('ls ' + req.query.dir, (err, out) => res.send(out));
+'''), P(r'''
+execFile('ls', ['--', req.query.dir], (err, out) => res.send(out));
+'''))]
+
+DATA["CODE_INJECTION"]["easy"] = [(
+    P(r'''
+res.send(String(eval(req.query.expr)));
+'''), P(r'''
+res.send(String(JSON.parse(req.query.expr)));
+'''))]
+
+DATA["PATH_TRAVERSAL"]["easy"] = [(
+    P(r'''
+fs.readFile('./public/' + req.query.file, (err, data) => res.send(data));
+'''), P(r'''
+fs.readFile('./public/' + path.basename(req.query.file), (err, data) => res.send(data));
+'''))]
+
+DATA["SSRF"]["easy"] = [(
+    P(r'''
+axios.get(req.query.url).then((r) => res.send(r.data));
+'''), P(r'''
+axios.get('https://api.example.com/items/' + encodeURIComponent(req.query.id)).then((r) => res.send(r.data));
+'''))]
+
+DATA["PROTO_POLLUTION"]["easy"] = [(
+    P(r'''
+Object.keys(req.body).forEach((k) => { target[k] = Object.assign(target[k] || {}, req.body[k]); });
+'''), P(r'''
+Object.keys(req.body).forEach((k) => {
+  if (k === '__proto__' || k === 'constructor' || k === 'prototype') return;
+  target[k] = Object.assign(target[k] || {}, req.body[k]);
+});
+'''))]
+
+DATA["OPEN_REDIRECT"]["easy"] = [(
+    P(r'''
+res.redirect(req.query.next);
+'''), P(r'''
+res.redirect(req.query.next === 'dashboard' ? '/dashboard' : '/');
+'''))]
+
+DATA["AUTHZ"]["easy"] = [(
+    P(r'''
+app.delete('/posts/:id', requireLogin, (req, res) => Post.deleteOne({ _id: req.params.id }).then(() => res.sendStatus(204)));
+'''), P(r'''
+app.delete('/posts/:id', requireLogin, (req, res) => Post.deleteOne({ _id: req.params.id, authorId: req.user.id }).then(() => res.sendStatus(204)));
+'''))]
+
+DATA["WEAK_CRYPTO"]["easy"] = [(
+    P(r'''
+const token = Math.random().toString(36).slice(2);
+'''), P(r'''
+const token = crypto.randomBytes(16).toString('hex');
+'''))]
+
 
 # ====================================================================== shortcut control
 # Safe twins naturally contain more code (the fix), so "longer = SAFE" would score ~0.9 on pair
@@ -2035,31 +2112,45 @@ def trivial_cues(pairs):
     return out
 
 
-def _padded_data(seed):
+def _padded_data(seed, orig=None, sets=("train", "iid", "ood_near", "ood_hard", "easy")):
+    orig = orig or DATA
     new = {}
     for t in VULN_TYPES:
         new[t] = {}
-        for s in ("train", "iid", "ood_near", "ood_hard"):
+        for s in sets:
             new[t][s] = [_pad_pair(v, sf, random.Random(f"{seed}|{s}|{t}|{j}"))
-                         for j, (v, sf) in enumerate(DATA[t][s])]
+                         for j, (v, sf) in enumerate(orig[t][s])]
     return new
 
 
-def _cues_by_set(data):
-    return {s: trivial_cues([p for t in VULN_TYPES for p in data[t][s]]) for s in ("train", "iid", "ood_near", "ood_hard")}
+def _cues_by_set(data, sets=("train", "iid", "ood_near", "ood_hard", "easy")):
+    return {s: trivial_cues([p for t in VULN_TYPES for p in data[t][s]]) for s in sets}
 
 
 def choose_and_apply_padding(n_seeds=300, select_on=("train", "iid", "ood_near")):
-    """The seed is chosen on the original three sets only (so adding new sets never changes the code of
-    existing snippets, keeping earlier runs comparable); every set, new ones included, then gets that seed."""
+    """The global seed is chosen on the original three sets only (so adding new sets never changes the code
+    of existing snippets, keeping earlier runs comparable). ood_hard (already shipped) uses that global seed.
+    Sets added later (`easy`) get their OWN seed, chosen on their own cue statistics."""
+    orig = {t: {s: list(DATA[t][s]) for s in DATA[t]} for t in VULN_TYPES}
     best = None
     for seed in range(n_seeds):
-        cues = _cues_by_set(_padded_data(seed))
+        cues = _cues_by_set(_padded_data(seed, orig, select_on), select_on)
         score = sum((c - 0.5) ** 2 for s in select_on for c in cues[s].values())
         if best is None or score < best[0]:
-            best = (score, seed, cues)
-    _, seed, cues = best
-    DATA.update(_padded_data(seed))
+            best = (score, seed)
+    seed = best[1]
+    DATA.update(_padded_data(seed, orig, ("train", "iid", "ood_near", "ood_hard")))
+    cues = _cues_by_set(DATA, ("train", "iid", "ood_near", "ood_hard"))
+    best_easy = None
+    for es in range(n_seeds):
+        c = _cues_by_set(_padded_data(es, orig, ("easy",)), ("easy",))["easy"]
+        score = sum((v - 0.5) ** 2 for v in c.values())
+        if best_easy is None or score < best_easy[0]:
+            best_easy = (score, es)
+    easy = _padded_data(best_easy[1], orig, ("easy",))
+    for t in VULN_TYPES:
+        DATA[t]["easy"] = easy[t]["easy"]
+    cues["easy"] = _cues_by_set(DATA, ("easy",))["easy"]
     return seed, cues
 
 
@@ -2094,7 +2185,7 @@ def jaccard(a, b):
 
 def validate(train, test):
     errors = []
-    expected = {"train": N_TRAIN, "iid": N_IID, "ood_near": N_OOD, "ood_hard": N_HARD}
+    expected = {"train": N_TRAIN, "iid": N_IID, "ood_near": N_OOD, "ood_hard": N_HARD, "easy": N_EASY}
     for t in VULN_TYPES:
         for s, n in expected.items():
             if len(DATA[t][s]) != n:
@@ -2119,7 +2210,7 @@ def validate(train, test):
 def similarity_report(train, test):
     tr = [idents(r["code"]) for r in train]
     out = {}
-    for s in ("iid", "ood_near", "ood_hard"):
+    for s in ("iid", "ood_near", "ood_hard", "easy"):
         sims = []
         for r in test:
             if r["set"] != s:
@@ -2161,7 +2252,7 @@ def main():
 
     pad_seed, cues = choose_and_apply_padding()
     train = interleave("train")
-    test = interleave("iid") + interleave("ood_near") + interleave("ood_hard")
+    test = interleave("iid") + interleave("ood_near") + interleave("ood_hard") + interleave("easy")
 
     errors = validate(train, test)
     if args.check_js:
@@ -2179,7 +2270,7 @@ def main():
 
     print(f"train.jsonl: {len(train)} snippets = {len(train) // 2} pairs")
     print("  labels:", dict(Counter(r["label"] for r in train)))
-    for s in ("iid", "ood_near", "ood_hard"):
+    for s in ("iid", "ood_near", "ood_hard", "easy"):
         rows = [r for r in test if r["set"] == s]
         print(f"test.jsonl [{s}]: {len(rows)} snippets = {len(rows) // 2} pairs; "
               f"{dict(Counter(r['label'] for r in rows))}")
