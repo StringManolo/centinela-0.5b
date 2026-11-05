@@ -40,6 +40,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+      - name: Preflight (required files and versions)
+        run: |
+          ok=1
+          for f in scripts/run_pipeline.py scripts/oat.py data/train.jsonl data/test.jsonl requirements.txt; do
+            if [ ! -f "$f" ]; then echo "::error::falta $f en el repositorio (git add y push?)"; ok=0; fi
+          done
+          if [ -f scripts/run_pipeline.py ]; then
+            grep -q -- "--lora_plus_ratio" scripts/run_pipeline.py || { echo "::error::scripts/run_pipeline.py es una version antigua (sin --lora_plus_ratio)"; ok=0; }
+            grep -q "average_rows" scripts/run_pipeline.py || { echo "::error::scripts/run_pipeline.py es una version antigua (sin TTA)"; ok=0; }
+          fi
+          if [ -f data/test.jsonl ]; then
+            grep -q '"set": "easy"' data/test.jsonl || { echo "::error::data/test.jsonl no contiene el set easy (version antigua)"; ok=0; }
+          fi
+          [ "$ok" = 1 ] || exit 1
+          echo "preflight OK"
       - name: Build matrix
         id: plan
         env:
@@ -108,7 +123,7 @@ jobs:
 
   report:
     needs: [plan, run]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

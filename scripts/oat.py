@@ -24,9 +24,45 @@ import warnings
 import numpy as np
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)  # nanmean of all-NaN columns is expected
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ensemble_scores as es  # noqa: E402
-import run_pipeline as rp  # noqa: E402
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _rp():
+    """run_pipeline is only needed by `report` (metrics for the ensembles); `plan` must work without it."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import run_pipeline
+    return run_pipeline
+
+
+def es_load(d):
+    rows = {}
+    with open(os.path.join(d, "scores_final.jsonl"), encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            rows[(r["id"], r["cond"])] = r
+    return rows
+
+
+def es_groups(rows):
+    g = {}
+    for r in rows:
+        g.setdefault(f"{r['set']}/{r['cond']}", []).append(r)
+    return g
+
+
+def es_combine(runs, how):
+    """Average the per-row label scores of several runs: logp = mean of log-probs, prob = log of mean prob."""
+    out = []
+    for k in sorted(runs[0]):
+        S = np.array([run[k]["scores"] for run in runs], dtype=np.float64)
+        if how == "logp":
+            s = S.mean(0)
+        else:
+            mx = S.max(0)
+            s = mx + np.log(np.exp(S - mx).mean(0))
+        out.append(dict(runs[0][k], scores=s.tolist()))
+    return out
 
 BASELINE = {
     "--lr": "1e-4", "--lora_targets": "q_proj,v_proj", "--lora_r": "8", "--lora_dropout": "0.05",
@@ -145,15 +181,15 @@ def fmt(x, signed=False):
 
 
 def ensemble_row(runs, how="logp"):
-    loaded = [es.load(r["dir"]) for r in runs if os.path.isfile(os.path.join(r["dir"], "scores_final.jsonl"))]
+    loaded = [es_load(r["dir"]) for r in runs if os.path.isfile(os.path.join(r["dir"], "scores_final.jsonl"))]
     if len(loaded) < 2:
         return None
     keys = set(loaded[0])
     loaded = [x for x in loaded if set(x) == keys]
     if len(loaded) < 2:
         return None
-    groups = es.groups(es.combine(loaded, how))
-    met = {k: rp.compute_metrics(v) for k, v in groups.items()}
+    groups = es_groups(es_combine(loaded, how))
+    met = {k: _rp().compute_metrics(v) for k, v in groups.items()}
     return len(loaded), {r: resp_value(met, p) for r, p in RESP.items()}
 
 
