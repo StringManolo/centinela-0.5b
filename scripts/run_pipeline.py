@@ -792,6 +792,9 @@ def main():
     last_hist = [h["loss"] for h in trainer.state.log_history if "loss" in h]
     print(f"  trained in {timings['train_s']}s, final loss (last 5 logs) "
           f"{np.mean(last_hist[-5:]) if last_hist else None}")
+    diverged = bool(last_hist) and (any(not math.isfinite(x) for x in last_hist) or last_hist[-1] > 25)
+    if diverged:
+        print("  WARNING: training diverged (non-finite or exploding loss); the evaluation below is of a broken model")
 
     # 6. final evaluation + outputs
     print("[6/6] Final evaluation")
@@ -814,7 +817,8 @@ def main():
                          "peft": peft.__version__},
                timestamp=datetime.now(timezone.utc).isoformat(), labels=LABELS, chance=CHANCE, shortcut_baselines=baselines,
                score_mode_resolved=mode, label_tokens=enc.label_tokens,
-               stopped_by_time_budget=budget_stop.get("stopped_at_step"),
+               stopped_by_time_budget=budget_stop.get("stopped_at_step"), diverged=diverged,
+               final_train_loss=(r4(float(np.mean(last_hist[-5:]))) if last_hist else None),
                train_runtime=result.metrics.get("train_runtime"))
     with open(os.path.join(args.output_dir, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump({"config": cfg, "timings": timings, "curve": curve}, f, indent=2, ensure_ascii=False)
