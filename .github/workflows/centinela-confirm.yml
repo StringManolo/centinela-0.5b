@@ -1,0 +1,161 @@
+name: Centinela - confirmar mejores combinaciones con semillas nuevas
+
+# plan   -> fixed list of configurations (e.g. "targets_all+lr3e4+rank32") x NEW seeds,
+#           plus baseline seeds and reference techniques (ia3) x seeds
+# run    -> every cell in parallel (20 at a time on a free account), 42 min training cap
+# report -> Welch t-test of every configuration against ia3, uncorrected and Bonferroni
+#
+# Default: 5 seeds x (3 configs + 1 ref) + 5 baseline = 25 jobs (~2 waves on a free account).
+# For a single wave use seeds=1,2,3,4 and baseline_seeds=1,2,3,4 (20 jobs).
+on:
+  workflow_dispatch:
+    inputs:
+      base_model:
+        description: 'Base model'
+        required: false
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      configs:
+        description: 'Combinations to confirm (comma list, "+" inside each)'
+        required: false
+        default: 'targets_all+lr3e4+rank32,rslora+rank32,targets_all+lr3e4+rslora'
+      pool:
+        description: 'Pool of techniques (names must exist in oat.TECHNIQUES)'
+        required: false
+        default: 'lora_plus,targets_all,lr3e4,rslora,rank32'
+      refs:
+        description: 'Reference techniques measured alone (cannot be combined)'
+        required: false
+        default: 'ia3'
+      seeds:
+        description: 'NEW seeds (NOT used before: 42,7,123,11,99,2024,2025,2026,2027)'
+        required: false
+        default: '1,2,3,4,5'
+      baseline_seeds:
+        description: 'Baseline seeds (their spread = noise level)'
+        required: false
+        default: '1,2,3,4,5'
+      max_steps:
+        description: 'Optimizer steps per run'
+        required: false
+        default: '150'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Preflight (required files and versions)
+        run: |
+          ok=1
+          for f in scripts/run_pipeline.py scripts/oat.py scripts/combo.py scripts/confirm.py \
+                   data/train.jsonl data/test.jsonl requirements.txt; do
+            if [ ! -f "$f" ]; then echo "::error::falta $f en el repositorio (git add y push?)"; ok=0; fi
+          done
+          if [ -f scripts/run_pipeline.py ]; then
+            grep -q "diverged" scripts/run_pipeline.py || { echo "::error::run_pipeline.py sin deteccion de divergencia"; ok=0; }
+            grep -q -- "--lora_plus_ratio" scripts/run_pipeline.py || { echo "::error::run_pipeline.py sin --lora_plus_ratio"; ok=0; }
+          fi
+          [ "$ok" = 1 ] || exit 1
+          echo "preflight OK"
+      - name: Build matrix
+        id: plan
+        env:
+          IN_CONFIGS: ${{ inputs.configs }}
+          IN_POOL: ${{ inputs.pool }}
+          IN_REFS: ${{ inputs.refs }}
+          IN_SEEDS: ${{ inputs.seeds }}
+          IN_BASELINE_SEEDS: ${{ inputs.baseline_seeds }}
+          IN_MAX_STEPS: ${{ inputs.max_steps }}
+        run: |
+          python -m pip install --quiet numpy
+          MATRIX=$(python scripts/confirm.py plan \
+            --configs "$IN_CONFIGS" --pool "$IN_POOL" --refs "$IN_REFS" \
+            --seeds "$IN_SEEDS" --baseline_seeds "$IN_BASELINE_SEEDS" \
+            --max_steps "$IN_MAX_STEPS")
+          echo "$MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    name: ${{ matrix.label }} s${{ matrix.seed }}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-centinela-v3
+          restore-keys: |
+            ${{ runner.os }}-hf-centinela-
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Train and evaluate
+        env:
+          TOKENIZERS_PARALLELISM: "false"
+          OMP_NUM_THREADS: "4"
+          PYTHONUNBUFFERED: "1"
+          BASE_MODEL: ${{ inputs.base_model }}
+          SEED: ${{ matrix.seed }}
+          RUN_ARGS: ${{ matrix.args }}
+        run: |
+          # shellcheck disable=SC2086
+          python scripts/run_pipeline.py --base_model "$BASE_MODEL" \
+            --train_file data/train.jsonl --test_file data/test.jsonl \
+            --output_dir ./lora_adapter --seed "$SEED" $RUN_ARGS
+      - name: Upload metrics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-oat-${{ matrix.slug }}-s${{ matrix.seed }}
+          path: |
+            lora_adapter/metrics.json
+            lora_adapter/scores_final.jsonl
+            lora_adapter/curve.csv
+          if-no-files-found: ignore
+
+  report:
+    needs: [plan, run]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: python -m pip install --quiet numpy
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: centinela-oat-*
+          path: results
+      - name: Build report
+        env:
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          IN_CONFIGS: ${{ inputs.configs }}
+          IN_POOL: ${{ inputs.pool }}
+          IN_REFS: ${{ inputs.refs }}
+        run: |
+          python scripts/confirm.py report --dir results \
+            --configs "$IN_CONFIGS" --pool "$IN_POOL" --refs "$IN_REFS" \
+            --plan-json "$MATRIX" --out report.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: confirm-report
+          path: report.md
