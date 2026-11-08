@@ -1,0 +1,88 @@
+name: Recover quantize from artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Original run ID that produced the artifact'
+        required: true
+      tag:
+        description: 'Target release tag'
+        required: true
+      base_model:
+        required: false
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: centinela-lora-${{ inputs.tag }}
+          path: ./downloaded
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge
+        run: |
+          if [ -f ./downloaded/lora_adapter/adapter_config.json ]; then
+            ADAPTER_DIR=./downloaded/lora_adapter
+          elif [ -f ./downloaded/adapter_config.json ]; then
+            ADAPTER_DIR=./downloaded
+          else
+            echo "::error::no adapter_config.json"; find ./downloaded -type f; exit 1
+          fi
+          ADAPTER_DIR="$ADAPTER_DIR" python3 - <<'PY'
+          import os, torch
+          from peft import PeftModel
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+          base = "${{ inputs.base_model }}"
+          model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.float32, trust_remote_code=True)
+          model = PeftModel.from_pretrained(model, os.environ["ADAPTER_DIR"], is_trainable=False)
+          merged = model.merge_and_unload()
+          merged.save_pretrained("./merged", safe_serialization=True)
+          AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained("./merged")
+          PY
+      - name: Quantize
+        run: |
+          git clone --depth 1 https://github.com/ggerganov/llama.cpp ./llama.cpp
+          cd ./llama.cpp && pip install -r requirements.txt
+          cmake -B build -DLLAMA_CURL=OFF && cmake --build build --config Release -j4 --target llama-quantize
+          cd ..
+          python3 ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./rec-F32.gguf --outtype f32
+          python3 ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./rec-F16.gguf --outtype f16
+          for Q in Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+            ./llama.cpp/build/bin/llama-quantize ./rec-F16.gguf "./rec-${Q}.gguf" "$Q"
+          done
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag }}"
+          mkdir -p ./release
+          for q in F32 F16 Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+            mv "rec-${q}.gguf" "./release/${TAG}-${q}.gguf"
+          done
+          if [ -f ./downloaded/lora_adapter/adapter_config.json ]; then BASE=./downloaded/lora_adapter; else BASE=./downloaded; fi
+          cp "$BASE/adapter_model.safetensors" "./release/${TAG}-lora.safetensors"
+          cp "$BASE/adapter_config.json" "./release/${TAG}-adapter_config.json"
+          cp "$BASE/metrics.json" "./release/${TAG}-metrics.json"
+          for f in trained.json deferred.json elegible.txt; do
+            [ -f "./downloaded/$f" ] && cp "./downloaded/$f" "./release/$f"
+            [ -f "./downloaded/lora_adapter/$f" ] && cp "./downloaded/lora_adapter/$f" "./release/$f"
+          done
+          gh release create "$TAG" ./release/* --title "$TAG" --notes "Recovered from run ${{ inputs.run_id }}"
