@@ -332,17 +332,28 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: centinela-lora-${{ needs.train.outputs.tag }}
-          path: ./lora_adapter
+          path: ./downloaded
 
       - name: Merge LoRA into base
         run: |
-          python3 - <<'PY'
-          import torch
+          if [ -f ./downloaded/lora_adapter/adapter_config.json ]; then
+            ADAPTER_DIR=./downloaded/lora_adapter
+          elif [ -f ./downloaded/adapter_config.json ]; then
+            ADAPTER_DIR=./downloaded
+          else
+            echo "::error::no adapter_config.json in artifact"
+            find ./downloaded -type f
+            exit 1
+          fi
+          echo "adapter dir: $ADAPTER_DIR"
+          ADAPTER_DIR="$ADAPTER_DIR" python3 - <<'PY'
+          import os, torch
           from peft import PeftModel
           from transformers import AutoModelForCausalLM, AutoTokenizer
           base = "${{ inputs.base_model }}"
+          adapter_dir = os.environ["ADAPTER_DIR"]
           model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.float32, trust_remote_code=True)
-          model = PeftModel.from_pretrained(model, "./lora_adapter", is_trainable=False)
+          model = PeftModel.from_pretrained(model, adapter_dir, is_trainable=False)
           merged = model.merge_and_unload()
           merged.save_pretrained("./merged", safe_serialization=True)
           AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained("./merged")
@@ -395,7 +406,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: centinela-lora-${{ needs.train.outputs.tag }}
-          path: ./lora_adapter
+          path: ./downloaded
 
       - uses: actions/download-artifact@v4
         with:
@@ -409,16 +420,26 @@ jobs:
           for q in F32 F16 Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
             cp "./gguf/${TAG}-${q}.gguf" "./release/${TAG}-${q}.gguf"
           done
-          cp ./lora_adapter/adapter_model.safetensors "./release/${TAG}-lora.safetensors"
-          cp ./lora_adapter/adapter_config.json    "./release/${TAG}-adapter_config.json"
-          cp ./lora_adapter/metrics.json            "./release/${TAG}-metrics.json"
-          cp ./lora_adapter/trained.json            "./release/trained.json"
-          if [ -f ./lora_adapter/deferred.json ]; then
-            cp ./lora_adapter/deferred.json         "./release/deferred.json"
+          if [ -f ./downloaded/lora_adapter/adapter_config.json ]; then
+            BASE=./downloaded/lora_adapter
+          elif [ -f ./downloaded/adapter_config.json ]; then
+            BASE=./downloaded
+          else
+            echo "::error::no adapter_config.json in artifact"
+            find ./downloaded -type f
+            exit 1
           fi
-          if [ -f ./lora_adapter/elegible.txt ]; then
-            cp ./lora_adapter/elegible.txt          "./release/elegible.txt"
-          fi
+          echo "base dir: $BASE"
+          cp "$BASE/adapter_model.safetensors" "./release/${TAG}-lora.safetensors"
+          cp "$BASE/adapter_config.json" "./release/${TAG}-adapter_config.json"
+          cp "$BASE/metrics.json" "./release/${TAG}-metrics.json"
+          for f in trained.json deferred.json elegible.txt; do
+            if [ -f "./downloaded/$f" ]; then
+              cp "./downloaded/$f" "./release/$f"
+            elif [ -f "./downloaded/lora_adapter/$f" ]; then
+              cp "./downloaded/lora_adapter/$f" "./release/$f"
+            fi
+          done
           ls -la ./release
 
       - name: Create release
