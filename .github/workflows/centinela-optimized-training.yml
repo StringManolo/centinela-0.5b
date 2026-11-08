@@ -1,12 +1,5 @@
 name: Centinela - Optimized Training (rslora+rank32)
 
-# Entrena SOLO con ejemplos nuevos (no vistos en releases previas), selecciona un subconjunto
-# que quepa en el time budget, entrena con rslora+rank32 desde el adaptador de la ultima
-# release elegible, sube LoRA + GGUFs (F32/F16/Q8/Q6/Q4/Q3/Q2) y lanza el workflow de test.
-#
-# Si metes 10.000 ejemplos de golpe, entrena ~600/dia automaticamente y deja el resto en cola
-# (deferred.json). Los diferidos NO se marcan como entrenados: vuelven la siguiente run.
-
 on:
   workflow_dispatch:
     inputs:
@@ -27,23 +20,23 @@ on:
         required: false
         default: 'data/train.jsonl'
       num_epochs:
-        description: 'Épocas sobre el subconjunto seleccionado (usado para calcular el target)'
+        description: 'Épocas sobre el subconjunto seleccionado'
         required: false
         default: '6'
       time_budget_min:
         description: 'Tope de entrenamiento (min). GH job timeout = 360 min.'
         required: false
-        default: '300'
+        default: '250'
       safety_factor:
-        description: 'Fracción del budget a planificar (0.85 deja margen para eval)'
+        description: 'Fracción del budget a planificar'
         required: false
         default: '0.85'
       sec_per_step:
-        description: 'Segundos por paso (0 = auto-detectar de metrics.json previo; default 17)'
+        description: 'Segundos por paso (0 = auto desde metrics.json previo)'
         required: false
         default: '0'
       lr:
-        description: 'Learning rate (baseline rslora+rank32 = 1e-4)'
+        description: 'Learning rate'
         required: false
         default: '1e-4'
       seed:
@@ -51,9 +44,9 @@ on:
         required: false
         default: '42'
       resume_from:
-        description: 'Tag de release, "latest" (ultima con elegible.txt), o vacio (fresh)'
+        description: 'Tag de release, "latest", o vacio (fresh start)'
         required: false
-        default: 'latest'
+        default: ''
       min_new_rows:
         description: 'Mínimo de filas nuevas para lanzar la run'
         required: false
@@ -78,6 +71,7 @@ jobs:
       sec_per_step: ${{ steps.filter.outputs.sec_per_step }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -128,9 +122,9 @@ jobs:
           FOUND=""
           for tag in $(gh release list -R "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName'); do
             assets=$(gh release view "$tag" -R "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
-            if echo "$assets" | grep -qx "elegible.txt" && \
-               echo "$assets" | grep -q -- "-lora.safetensors" && \
-               echo "$assets" | grep -qx "trained.json"; then
+            if echo "$assets" | grep -qx "elegible.txt" \
+               && echo "$assets" | grep -q -- "-lora.safetensors" \
+               && echo "$assets" | grep -qx "trained.json"; then
               FOUND="$tag"
               break
             fi
@@ -152,56 +146,42 @@ jobs:
           gh release download "${{ steps.resume.outputs.value }}" \
             -R "${{ github.repository }}" \
             -p '*-lora.safetensors' \
-            -p 'adapter_config.json' \
             -p '*-adapter_config.json' \
             -p 'trained.json' \
             -p '*-metrics.json' \
             -D ./prev --clobber
-          # Normalize: release asset names have the tag prefix, but PeftModel wants plain names
           LORA=$(ls ./prev/*-lora.safetensors 2>/dev/null | head -1)
           if [ -z "$LORA" ]; then
-            echo "::error::no *-lora.safetensors asset in release ${{ steps.resume.outputs.value }}"
+            echo "::error::no *-lora.safetensors asset in release"
             exit 1
           fi
           mv "$LORA" ./prev/adapter_model.safetensors
           CFG=$(ls ./prev/*-adapter_config.json 2>/dev/null | head -1)
-          if [ -z "$CFG" ] && [ -f ./prev/adapter_config.json ]; then
-            CFG=./prev/adapter_config.json
-          fi
           if [ -z "$CFG" ]; then
-            echo "::error::no adapter_config.json in release ${{ steps.resume.outputs.value }}"
+            echo "::error::no adapter_config.json in release"
             exit 1
           fi
           mv "$CFG" ./prev/adapter_config.json
           MET=$(ls ./prev/*-metrics.json 2>/dev/null | head -1)
-          if [ -n "$MET" ]; then mv "$MET" ./prev/metrics.json; fi
-          test -f ./prev/trained.json || { echo "::error::no trained.json"; exit 1; }
+          if [ -n "$MET" ]; then
+            mv "$MET" ./prev/metrics.json
+          fi
+          test -f ./prev/trained.json || { echo "::error::no trained.json in release"; exit 1; }
           ls -la ./prev
 
       - name: Filter to NEW examples (budget-aware selection)
         id: filter
         run: |
-          # Estimate sec_per_step: input override > previous metrics.json > 17
           if [ -n "${{ inputs.sec_per_step }}" ] && [ "${{ inputs.sec_per_step }}" != "0" ]; then
             SEC="${{ inputs.sec_per_step }}"
-            echo "sec_per_step from input: $SEC"
           elif [ -f ./prev/metrics.json ]; then
-            SEC=$(python -c "
-import json
-m = json.load(open('./prev/metrics.json'))
-t = m.get('timings', {}).get('train_s', 0)
-s = m.get('config', {}).get('total_steps', 0)
-print(round(t / s, 2) if s else 17)
-")
-            echo "sec_per_step from previous run: $SEC"
+            SEC=$(python3 -c "import json; m=json.load(open('./prev/metrics.json')); t=m.get('timings',{}).get('train_s',0); s=m.get('config',{}).get('total_steps',0); print(round(t/s,2) if s else 17)")
           else
             SEC=17
-            echo "sec_per_step default: $SEC"
           fi
           echo "sec_per_step=$SEC" >> "$GITHUB_OUTPUT"
-
           set +e
-          python scripts/continue_training.py \
+          python3 scripts/continue_training.py \
             --all_train_file "${{ inputs.all_train_file }}" \
             --trained_file ./prev/trained.json \
             --out ./train_new.jsonl \
@@ -220,13 +200,13 @@ print(round(t / s, 2) if s else 17)
             echo "nothing_new=true" >> "$GITHUB_OUTPUT"
             echo "new_rows=0" >> "$GITHUB_OUTPUT"
             echo "deferred_rows=0" >> "$GITHUB_OUTPUT"
-            echo "::warning::No hay ejemplos nuevos suficientes; no se lanza entrenamiento."
+            echo "::warning::No hay ejemplos nuevos suficientes."
           elif [ "$RC" = "0" ]; then
             echo "nothing_new=false" >> "$GITHUB_OUTPUT"
-            NEW=$(python -c "import json; print(json.load(open('new_hashes.json'))['count'])")
+            NEW=$(python3 -c "import json; print(json.load(open('new_hashes.json'))['count'])")
             DEF=0
             if [ -f ./deferred.json ]; then
-              DEF=$(python -c "import json; print(json.load(open('deferred.json'))['count'])")
+              DEF=$(python3 -c "import json; print(json.load(open('deferred.json'))['count'])")
             fi
             echo "new_rows=$NEW" >> "$GITHUB_OUTPUT"
             echo "deferred_rows=$DEF" >> "$GITHUB_OUTPUT"
@@ -259,20 +239,20 @@ print(round(t / s, 2) if s else 17)
             --lr_scheduler constant_with_warmup
             --grad_accum 4
             --train_probe_n 20
+            --skip_step0
             --eval_every 1000000
           )
           if [ -n "${{ steps.resume.outputs.value }}" ]; then
             ARGS+=(--resume_adapter ./prev)
           fi
-          python scripts/run_pipeline.py "${ARGS[@]}"
+          python3 scripts/run_pipeline.py "${ARGS[@]}"
 
       - name: Post-training: merge trained.json + write elegible.txt
         id: posttrain
         if: ${{ steps.filter.outputs.nothing_new != 'true' }}
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          # Merge hashes: prev + only SELECTED this run (new_hashes.json), NOT all new
-          python - <<'PY'
+          python3 - <<'PY'
           import json
           prev = set()
           try:
@@ -287,36 +267,31 @@ print(round(t / s, 2) if s else 17)
               json.dump({"hashes": merged, "count": len(merged)}, f)
           print(f"prev={len(prev)} selected_this_run={len(new)} total={len(merged)}")
           PY
-          TOTAL=$(python -c "import json; print(json.load(open('trained.json'))['count'])")
+          TOTAL=$(python3 -c "import json; print(json.load(open('trained.json'))['count'])")
           echo "total_rows=$TOTAL" >> "$GITHUB_OUTPUT"
-
-          DIVERGED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(m['config'].get('diverged', False))")
-          STOPPED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(bool(m['config'].get('stopped_by_time_budget')))")
+          DIVERGED=$(python3 -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(m['config'].get('diverged', False))")
+          STOPPED=$(python3 -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(bool(m['config'].get('stopped_by_time_budget')))")
           echo "diverged=$DIVERGED" >> "$GITHUB_OUTPUT"
           echo "stopped_by_time=$STOPPED" >> "$GITHUB_OUTPUT"
-
           if [ "$DIVERGED" = "True" ]; then
             echo "::warning::Training diverged; elegible.txt will NOT be created."
             exit 0
           fi
-
-          cat > elegible.txt <<EOF
-          tag: $TAG
-          run_id: ${{ github.run_id }}
-          timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          base_model: ${{ inputs.base_model }}
-          techniques: rslora+rank32
-          num_epochs: ${{ inputs.num_epochs }}
-          time_budget_min: ${{ inputs.time_budget_min }}
-          safety_factor: ${{ inputs.safety_factor }}
-          sec_per_step: ${{ steps.filter.outputs.sec_per_step }}
-          resumed_from: ${{ steps.resume.outputs.value }}
-          new_rows_selected_this_run: ${{ steps.filter.outputs.new_rows }}
-          deferred_rows_remaining: ${{ steps.filter.outputs.deferred_rows }}
-          total_rows_trained: $TOTAL
-          diverged: false
-          stopped_by_time_budget: $STOPPED
-          EOF
+          echo "tag: $TAG" > elegible.txt
+          echo "run_id: ${{ github.run_id }}" >> elegible.txt
+          echo "timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> elegible.txt
+          echo "base_model: ${{ inputs.base_model }}" >> elegible.txt
+          echo "techniques: rslora+rank32" >> elegible.txt
+          echo "num_epochs: ${{ inputs.num_epochs }}" >> elegible.txt
+          echo "time_budget_min: ${{ inputs.time_budget_min }}" >> elegible.txt
+          echo "safety_factor: ${{ inputs.safety_factor }}" >> elegible.txt
+          echo "sec_per_step: ${{ steps.filter.outputs.sec_per_step }}" >> elegible.txt
+          echo "resumed_from: ${{ steps.resume.outputs.value }}" >> elegible.txt
+          echo "new_rows_selected_this_run: ${{ steps.filter.outputs.new_rows }}" >> elegible.txt
+          echo "deferred_rows_remaining: ${{ steps.filter.outputs.deferred_rows }}" >> elegible.txt
+          echo "total_rows_trained: $TOTAL" >> elegible.txt
+          echo "diverged: false" >> elegible.txt
+          echo "stopped_by_time_budget: $STOPPED" >> elegible.txt
           cat elegible.txt
 
       - name: Upload LoRA adapter + registry
@@ -342,22 +317,26 @@ print(round(t / s, 2) if s else 17)
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
           cache-dependency-path: requirements.txt
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - uses: actions/download-artifact@v4
         with:
           name: centinela-lora-${{ needs.train.outputs.tag }}
           path: ./lora_adapter
+
       - name: Merge LoRA into base
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import torch
           from peft import PeftModel
           from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -369,6 +348,7 @@ print(round(t / s, 2) if s else 17)
           AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained("./merged")
           print("merged OK")
           PY
+
       - name: Build llama.cpp (convert + quantize)
         run: |
           git clone --depth 1 https://github.com/ggerganov/llama.cpp ./llama.cpp
@@ -376,16 +356,19 @@ print(round(t / s, 2) if s else 17)
           pip install -r requirements.txt
           cmake -B build -DLLAMA_CURL=OFF
           cmake --build build --config Release -j4 --target llama-quantize
+
       - name: Convert to F32 and F16
         run: |
-          python ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F32.gguf --outtype f32
-          python ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F16.gguf --outtype f16
+          python3 ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F32.gguf --outtype f32
+          python3 ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F16.gguf --outtype f16
+
       - name: Quantize (Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K)
         run: |
           for Q in Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
             echo "== $Q =="
             ./llama.cpp/build/bin/llama-quantize ./centinela-F16.gguf "./centinela-${Q}.gguf" "$Q"
           done
+
       - name: Rename with full tag
         run: |
           TAG="${{ needs.train.outputs.tag }}"
@@ -393,6 +376,7 @@ print(round(t / s, 2) if s else 17)
             mv "centinela-${q}.gguf" "${TAG}-${q}.gguf"
           done
           ls -la *.gguf
+
       - name: Upload GGUFs
         uses: actions/upload-artifact@v4
         with:
@@ -407,14 +391,17 @@ print(round(t / s, 2) if s else 17)
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: centinela-lora-${{ needs.train.outputs.tag }}
           path: ./lora_adapter
+
       - uses: actions/download-artifact@v4
         with:
           name: centinela-gguf-${{ needs.train.outputs.tag }}
           path: ./gguf
+
       - name: Rename assets with tag
         run: |
           TAG="${{ needs.train.outputs.tag }}"
@@ -427,27 +414,26 @@ print(round(t / s, 2) if s else 17)
           cp ./lora_adapter/metrics.json            "./release/${TAG}-metrics.json"
           cp ./lora_adapter/trained.json            "./release/trained.json"
           if [ -f ./lora_adapter/deferred.json ]; then
-            cp ./lora_adapter/deferred.json          "./release/deferred.json"
+            cp ./lora_adapter/deferred.json         "./release/deferred.json"
           fi
           if [ -f ./lora_adapter/elegible.txt ]; then
-            cp ./lora_adapter/elegible.txt           "./release/elegible.txt"
+            cp ./lora_adapter/elegible.txt          "./release/elegible.txt"
           fi
           ls -la ./release
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.train.outputs.tag }}
           name: ${{ needs.train.outputs.tag }}
           body: |
-            Run `${{ github.run_id }}` — `${{ inputs.base_model }}`
-            - Techniques: `rslora+rank32` (r=32, rsLoRA, q_proj+v_proj)
-            - Epochs on selected data: `${{ inputs.num_epochs }}` (budget `${{ inputs.time_budget_min }}` min, safety `${{ inputs.safety_factor }}`)
+            Run `${{ github.run_id }}`
+            - Techniques: `rslora+rank32`
             - Rows selected this run: `${{ needs.train.outputs.new_rows }}`
             - Rows deferred to next run: `${{ needs.train.outputs.deferred_rows }}`
             - Total rows trained (cumulative): `${{ needs.train.outputs.total_rows }}`
             - Resumed from: `${{ steps.resume.outputs.value || 'fresh start' }}`
             - Diverged: `${{ needs.train.outputs.diverged }}` — Stopped by time: `${{ needs.train.outputs.stopped_by_time }}`
-            - Eligible to continue: `${{ needs.train.outputs.diverged == 'False' && 'YES' || 'NO' }}`
             - Quantizations: F32, F16, Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K
             - LoRA tensors: `${{ needs.train.outputs.tag }}-lora.safetensors`
           files: |
@@ -473,8 +459,8 @@ print(round(t / s, 2) if s else 17)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run centinela-test.yml \
+          gh workflow run centinela-optimized-test.yml \
             -R "${{ github.repository }}" \
             -f release_tag="${{ needs.train.outputs.tag }}" \
             -f base_model="${{ inputs.base_model }}"
-          echo "Dispatched centinela-test.yml for ${{ needs.train.outputs.tag }}"
+          echo "Dispatched centinela-optimized-test.yml for ${{ needs.train.outputs.tag }}"

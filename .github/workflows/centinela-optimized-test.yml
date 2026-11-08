@@ -24,15 +24,18 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
           cache-dependency-path: requirements.txt
+
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Download release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -44,13 +47,14 @@ jobs:
           TAG="${{ inputs.release_tag }}"
           cp "./release/${TAG}-lora.safetensors"    ./prev/adapter_model.safetensors
           cp "./release/${TAG}-adapter_config.json" ./prev/adapter_config.json
+
       - name: Eval-only (real metrics: TYPE, TYPE_SHIFT, DET)
         env:
           TOKENIZERS_PARALLELISM: "false"
           OMP_NUM_THREADS: "4"
           PYTHONUNBUFFERED: "1"
         run: |
-          python scripts/run_pipeline.py \
+          python3 scripts/run_pipeline.py \
             --base_model "${{ inputs.base_model }}" \
             --train_file data/train.jsonl \
             --test_file data/test.jsonl \
@@ -61,22 +65,27 @@ jobs:
             --lora_targets q_proj,v_proj --lora_dropout 0.05 \
             --lr 1e-4 --seed 42 --train_templates 1 \
             --grad_accum 4 --lr_scheduler constant_with_warmup
+
       - name: Build llama.cpp
         run: |
           git clone --depth 1 https://github.com/ggerganov/llama.cpp ./llama.cpp
           cd ./llama.cpp
           cmake -B build -DLLAMA_CURL=OFF
           cmake --build build --config Release -j4 --target llama-cli
+
       - name: Smoke test GGUF
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import json, os, subprocess
           tag = "${{ inputs.release_tag }}"
           quant = "${{ inputs.quant }}"
           gguf = f"./release/{tag}-{quant}.gguf"
           assert os.path.isfile(gguf), f"missing {gguf}"
-          LABELS = ["XSS","SQLI","CMDI","CODE_INJECTION","PATH_TRAVERSAL",
-                    "SSRF","PROTO_POLLUTION","OPEN_REDIRECT","AUTHZ","WEAK_CRYPTO","SAFE"]
+          LABELS = ["XSS", "SQLI", "CMDI", "CODE_INJECTION", "PATH_TRAVERSAL",
+                    "SSRF", "PROTO_POLLUTION", "OPEN_REDIRECT", "AUTHZ", "WEAK_CRYPTO",
+                    "SSTI", "CSRF", "XXE", "LDAP_INJECTION", "HPP", "CRLF_INJECTION",
+                    "CSSI", "HTMLI", "NOSQLI", "HARDCODED_SECRETS", "MASS_ASSIGNMENT",
+                    "WEAK_COOKIE", "INSECURE_JWT", "RACE_CONDITION", "INFO_DISCLOSURE", "SAFE"]
           rows = [json.loads(l) for l in open("data/test.jsonl")][:5]
           correct = 0
           for r in rows:
@@ -89,41 +98,15 @@ jobs:
                   capture_output=True, text=True, timeout=120)
               text = (out.stdout or "")[-300:]
               pred = next((l for l in LABELS if l in text), "?")
-              ok = "OK" if pred == r["label"] else "MISS"
               correct += (pred == r["label"])
-              print(f"{r['id']:>22}  true={r['label']:<15} pred={pred:<15} {ok}")
+              print(f"{r['id']:>22}  true={r['label']:<18} pred={pred}")
           print(f"\nSmoke: {correct}/{len(rows)} aciertos en {quant}")
           PY
-      - name: Build report
-        if: ${{ always() }}
-        run: |
-          {
-            echo "# Test report — ${{ inputs.release_tag }}"
-            echo
-            echo "Quant smoke-tested: ${{ inputs.quant }}"
-            echo
-            echo "## Métricas del adaptador (eval-only, test completo)"
-            echo '```'
-            python - <<'PY'
-          import json, sys
-          try:
-              m = json.load(open("./eval_out/metrics.json"))
-              f = m["curve"][-1]["metrics"]
-              for k in ("iid/seen","iid/shift","ood_near/seen","ood_hard/seen"):
-                  if k in f:
-                      print(f"{k:18s} type={f[k].get('type_acc_forced'):.3f}  "
-                            f"shift={f[k].get('type_acc_forced'):.3f}  det={f[k].get('det_auroc'):.3f}")
-              c = m["config"]
-              print(f"diverged={c.get('diverged')}  steps={c.get('total_steps')}  "
-                    f"score_mode={c.get('score_mode_resolved')}")
-          except Exception as e:
-              print("no metrics:", e)
-          PY
-            echo '```'
-          } > report.md
-          cat report.md
+
       - uses: actions/upload-artifact@v4
         if: ${{ always() }}
         with:
           name: centinela-test-${{ inputs.release_tag }}
-          path: report.md
+          path: |
+            ./eval_out/
+            report.md
