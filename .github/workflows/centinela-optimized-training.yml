@@ -1,8 +1,11 @@
 name: Centinela - Optimized Training (rslora+rank32)
 
-# Entrena SOLO con ejemplos nuevos (no vistos en releases previas), desde el adaptador
-# de la ultima release que tenga elegible.txt. Sube LoRA + GGUFs (F32/F16/Q8/Q6/Q4/Q3/Q2)
-# y lanza el workflow de test.
+# Entrena SOLO con ejemplos nuevos (no vistos en releases previas), selecciona un subconjunto
+# que quepa en el time budget, entrena con rslora+rank32 desde el adaptador de la ultima
+# release elegible, sube LoRA + GGUFs (F32/F16/Q8/Q6/Q4/Q3/Q2) y lanza el workflow de test.
+#
+# Si metes 10.000 ejemplos de golpe, entrena ~600/dia automaticamente y deja el resto en cola
+# (deferred.json). Los diferidos NO se marcan como entrenados: vuelven la siguiente run.
 
 on:
   workflow_dispatch:
@@ -20,23 +23,31 @@ on:
         required: false
         default: 'rslora+rank32'
       all_train_file:
-        description: 'Fichero completo (se filtra a solo nuevos)'
+        description: 'Fichero completo (se filtra a nuevos y se selecciona subconjunto)'
         required: false
         default: 'data/train.jsonl'
       num_epochs:
-        description: 'Épocas sobre los datos NUEVOS (el volumen escala con los datos)'
+        description: 'Épocas sobre el subconjunto seleccionado (usado para calcular el target)'
         required: false
         default: '6'
       time_budget_min:
         description: 'Tope de entrenamiento (min). GH job timeout = 360 min.'
         required: false
         default: '300'
+      safety_factor:
+        description: 'Fracción del budget a planificar (0.85 deja margen para eval)'
+        required: false
+        default: '0.85'
+      sec_per_step:
+        description: 'Segundos por paso (0 = auto-detectar de metrics.json previo; default 17)'
+        required: false
+        default: '0'
       lr:
         description: 'Learning rate (baseline rslora+rank32 = 1e-4)'
         required: false
         default: '1e-4'
       seed:
-        description: 'Semilla'
+        description: 'Semilla (selección + entrenamiento)'
         required: false
         default: '42'
       resume_from:
@@ -62,7 +73,9 @@ jobs:
       diverged: ${{ steps.posttrain.outputs.diverged }}
       stopped_by_time: ${{ steps.posttrain.outputs.stopped_by_time }}
       new_rows: ${{ steps.filter.outputs.new_rows }}
+      deferred_rows: ${{ steps.filter.outputs.deferred_rows }}
       total_rows: ${{ steps.posttrain.outputs.total_rows }}
+      sec_per_step: ${{ steps.filter.outputs.sec_per_step }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -116,8 +129,8 @@ jobs:
           for tag in $(gh release list -R "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName'); do
             assets=$(gh release view "$tag" -R "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
             if echo "$assets" | grep -qx "elegible.txt" && \
-               echo "$assets" | grep -q "adapter_model.safetensors" && \
-               echo "$assets" | grep -q "trained.json"; then
+               echo "$assets" | grep -q -- "-lora.safetensors" && \
+               echo "$assets" | grep -qx "trained.json"; then
               FOUND="$tag"
               break
             fi
@@ -130,7 +143,7 @@ jobs:
             echo "latest eligible: $FOUND"
           fi
 
-      - name: Download previous adapter + trained.json
+      - name: Download previous adapter + trained.json + metrics
         if: ${{ steps.resume.outputs.value != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -138,40 +151,91 @@ jobs:
           mkdir -p ./prev
           gh release download "${{ steps.resume.outputs.value }}" \
             -R "${{ github.repository }}" \
-            -p 'adapter_model.safetensors' \
+            -p '*-lora.safetensors' \
             -p 'adapter_config.json' \
+            -p '*-adapter_config.json' \
             -p 'trained.json' \
+            -p '*-metrics.json' \
             -D ./prev --clobber
-          test -f ./prev/adapter_config.json || { echo "::error::no adapter_config.json"; exit 1; }
+          # Normalize: release asset names have the tag prefix, but PeftModel wants plain names
+          LORA=$(ls ./prev/*-lora.safetensors 2>/dev/null | head -1)
+          if [ -z "$LORA" ]; then
+            echo "::error::no *-lora.safetensors asset in release ${{ steps.resume.outputs.value }}"
+            exit 1
+          fi
+          mv "$LORA" ./prev/adapter_model.safetensors
+          CFG=$(ls ./prev/*-adapter_config.json 2>/dev/null | head -1)
+          if [ -z "$CFG" ] && [ -f ./prev/adapter_config.json ]; then
+            CFG=./prev/adapter_config.json
+          fi
+          if [ -z "$CFG" ]; then
+            echo "::error::no adapter_config.json in release ${{ steps.resume.outputs.value }}"
+            exit 1
+          fi
+          mv "$CFG" ./prev/adapter_config.json
+          MET=$(ls ./prev/*-metrics.json 2>/dev/null | head -1)
+          if [ -n "$MET" ]; then mv "$MET" ./prev/metrics.json; fi
           test -f ./prev/trained.json || { echo "::error::no trained.json"; exit 1; }
           ls -la ./prev
 
-      - name: Filter to NEW examples
+      - name: Filter to NEW examples (budget-aware selection)
         id: filter
         run: |
+          # Estimate sec_per_step: input override > previous metrics.json > 17
+          if [ -n "${{ inputs.sec_per_step }}" ] && [ "${{ inputs.sec_per_step }}" != "0" ]; then
+            SEC="${{ inputs.sec_per_step }}"
+            echo "sec_per_step from input: $SEC"
+          elif [ -f ./prev/metrics.json ]; then
+            SEC=$(python -c "
+import json
+m = json.load(open('./prev/metrics.json'))
+t = m.get('timings', {}).get('train_s', 0)
+s = m.get('config', {}).get('total_steps', 0)
+print(round(t / s, 2) if s else 17)
+")
+            echo "sec_per_step from previous run: $SEC"
+          else
+            SEC=17
+            echo "sec_per_step default: $SEC"
+          fi
+          echo "sec_per_step=$SEC" >> "$GITHUB_OUTPUT"
+
           set +e
           python scripts/continue_training.py \
             --all_train_file "${{ inputs.all_train_file }}" \
             --trained_file ./prev/trained.json \
             --out ./train_new.jsonl \
             --out_hashes ./new_hashes.json \
+            --deferred_file ./deferred.json \
+            --time_budget_min "${{ inputs.time_budget_min }}" \
+            --num_epochs "${{ inputs.num_epochs }}" \
+            --sec_per_step "$SEC" \
+            --safety_factor "${{ inputs.safety_factor }}" \
+            --select_strategy stratified \
+            --seed "${{ inputs.seed }}" \
             --min_new_rows "${{ inputs.min_new_rows }}"
           RC=$?
           set -e
           if [ "$RC" = "78" ]; then
             echo "nothing_new=true" >> "$GITHUB_OUTPUT"
             echo "new_rows=0" >> "$GITHUB_OUTPUT"
+            echo "deferred_rows=0" >> "$GITHUB_OUTPUT"
             echo "::warning::No hay ejemplos nuevos suficientes; no se lanza entrenamiento."
           elif [ "$RC" = "0" ]; then
             echo "nothing_new=false" >> "$GITHUB_OUTPUT"
             NEW=$(python -c "import json; print(json.load(open('new_hashes.json'))['count'])")
+            DEF=0
+            if [ -f ./deferred.json ]; then
+              DEF=$(python -c "import json; print(json.load(open('deferred.json'))['count'])")
+            fi
             echo "new_rows=$NEW" >> "$GITHUB_OUTPUT"
+            echo "deferred_rows=$DEF" >> "$GITHUB_OUTPUT"
           else
             echo "::error::continue_training.py failed with $RC"
             exit 1
           fi
 
-      - name: Train (rslora+rank32, only NEW data)
+      - name: Train (rslora+rank32, budget-fitted subset)
         if: ${{ steps.filter.outputs.nothing_new != 'true' }}
         env:
           TOKENIZERS_PARALLELISM: "false"
@@ -207,7 +271,7 @@ jobs:
         if: ${{ steps.filter.outputs.nothing_new != 'true' }}
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          # Merge hashes
+          # Merge hashes: prev + only SELECTED this run (new_hashes.json), NOT all new
           python - <<'PY'
           import json
           prev = set()
@@ -221,12 +285,11 @@ jobs:
           merged = sorted(prev | new)
           with open("./trained.json", "w") as f:
               json.dump({"hashes": merged, "count": len(merged)}, f)
-          print(f"prev={len(prev)} new={len(new)} total={len(merged)}")
+          print(f"prev={len(prev)} selected_this_run={len(new)} total={len(merged)}")
           PY
           TOTAL=$(python -c "import json; print(json.load(open('trained.json'))['count'])")
           echo "total_rows=$TOTAL" >> "$GITHUB_OUTPUT"
 
-          # Extract flags from metrics
           DIVERGED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(m['config'].get('diverged', False))")
           STOPPED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(bool(m['config'].get('stopped_by_time_budget')))")
           echo "diverged=$DIVERGED" >> "$GITHUB_OUTPUT"
@@ -245,8 +308,11 @@ jobs:
           techniques: rslora+rank32
           num_epochs: ${{ inputs.num_epochs }}
           time_budget_min: ${{ inputs.time_budget_min }}
+          safety_factor: ${{ inputs.safety_factor }}
+          sec_per_step: ${{ steps.filter.outputs.sec_per_step }}
           resumed_from: ${{ steps.resume.outputs.value }}
-          new_rows_this_run: ${{ steps.filter.outputs.new_rows }}
+          new_rows_selected_this_run: ${{ steps.filter.outputs.new_rows }}
+          deferred_rows_remaining: ${{ steps.filter.outputs.deferred_rows }}
           total_rows_trained: $TOTAL
           diverged: false
           stopped_by_time_budget: $STOPPED
@@ -265,6 +331,7 @@ jobs:
             lora_adapter/curve.csv
             lora_adapter/scores_final.jsonl
             trained.json
+            deferred.json
             elegible.txt
           if-no-files-found: error
 
@@ -359,8 +426,11 @@ jobs:
           cp ./lora_adapter/adapter_config.json    "./release/${TAG}-adapter_config.json"
           cp ./lora_adapter/metrics.json            "./release/${TAG}-metrics.json"
           cp ./lora_adapter/trained.json            "./release/trained.json"
+          if [ -f ./lora_adapter/deferred.json ]; then
+            cp ./lora_adapter/deferred.json          "./release/deferred.json"
+          fi
           if [ -f ./lora_adapter/elegible.txt ]; then
-            cp ./lora_adapter/elegible.txt          "./release/elegible.txt"
+            cp ./lora_adapter/elegible.txt           "./release/elegible.txt"
           fi
           ls -la ./release
       - name: Create release
@@ -371,8 +441,9 @@ jobs:
           body: |
             Run `${{ github.run_id }}` — `${{ inputs.base_model }}`
             - Techniques: `rslora+rank32` (r=32, rsLoRA, q_proj+v_proj)
-            - Epochs on new data: `${{ inputs.num_epochs }}` (time budget `${{ inputs.time_budget_min }}` min)
-            - New rows this run: `${{ needs.train.outputs.new_rows }}`
+            - Epochs on selected data: `${{ inputs.num_epochs }}` (budget `${{ inputs.time_budget_min }}` min, safety `${{ inputs.safety_factor }}`)
+            - Rows selected this run: `${{ needs.train.outputs.new_rows }}`
+            - Rows deferred to next run: `${{ needs.train.outputs.deferred_rows }}`
             - Total rows trained (cumulative): `${{ needs.train.outputs.total_rows }}`
             - Resumed from: `${{ steps.resume.outputs.value || 'fresh start' }}`
             - Diverged: `${{ needs.train.outputs.diverged }}` — Stopped by time: `${{ needs.train.outputs.stopped_by_time }}`
@@ -385,6 +456,7 @@ jobs:
             ./release/*-adapter_config.json
             ./release/*-metrics.json
             ./release/trained.json
+            ./release/deferred.json
             ./release/elegible.txt
           draft: false
           prerelease: false
@@ -405,3 +477,4 @@ jobs:
             -R "${{ github.repository }}" \
             -f release_tag="${{ needs.train.outputs.tag }}" \
             -f base_model="${{ inputs.base_model }}"
+          echo "Dispatched centinela-test.yml for ${{ needs.train.outputs.tag }}"
