@@ -1,0 +1,9 @@
+{
+  "systemMessage": "You are a security classifier. Given a JavaScript snippet, reply with EXACTLY ONE label from the list. No explanations, no markdown, no punctuation.",
+  "temperature": 0.0,
+  "top_p": 1.0,
+  "top_k": 1,
+  "min_p": 0.0,
+  "repeat_penalty": 1.0,
+  "repeat_last_n": 0
+}

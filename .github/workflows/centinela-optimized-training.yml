@@ -26,7 +26,7 @@ on:
       time_budget_min:
         description: 'Tope de entrenamiento (min). GH job timeout = 360 min.'
         required: false
-        default: '250'
+        default: '340'
       safety_factor:
         description: 'Fracción del budget a planificar'
         required: false

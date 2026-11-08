@@ -1,0 +1,3990 @@
+{
+  "config": {
+    "base_model": "huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3",
+    "train_file": "./train_new.jsonl",
+    "test_file": "data/test.jsonl",
+    "output_dir": "./lora_adapter",
+    "train_pairs": 0,
+    "train_templates": 1,
+    "score_mode": "auto",
+    "num_epochs": 6.0,
+    "max_steps": 0,
+    "lr": 0.0001,
+    "lr_scheduler": "constant_with_warmup",
+    "warmup_steps": 5,
+    "batch_size": 1,
+    "grad_accum": 4,
+    "lora_r": 32,
+    "lora_targets": "q_proj,v_proj",
+    "lora_dropout": 0.05,
+    "peft": "lora",
+    "lora_plus_ratio": 0.0,
+    "lora_layers": "all",
+    "label_smoothing": 0.0,
+    "rslora": true,
+    "dora": false,
+    "weight_decay": 0.0,
+    "neftune_alpha": 0.0,
+    "loss": "lm",
+    "time_budget_min": 250.0,
+    "seed": 42,
+    "eval_every": 1000000,
+    "eval_sets": "",
+    "eval_pairs_per_set": 0,
+    "train_probe_n": 20,
+    "no_shift_eval": false,
+    "max_len": 768,
+    "permute_labels": false,
+    "skip_step0": true,
+    "resume_adapter": "",
+    "eval_only": false,
+    "n_train_rows": 340,
+    "n_train_pairs": 170,
+    "steps_per_epoch": 85,
+    "total_steps": 510,
+    "effective_batch": 4,
+    "chat_template_source": "native",
+    "skipped_too_long": [],
+    "train_token_stats": {
+      "n": 340,
+      "mean_prompt_tokens": 243.3,
+      "mean_answer_tokens": 4.09,
+      "supervised_fraction": 0.0165
+    },
+    "versions": {
+      "torch": "2.5.1+cu124",
+      "transformers": "4.46.3",
+      "peft": "0.13.2"
+    },
+    "timestamp": "2026-11-08T06:21:59.532177+00:00",
+    "labels": [
+      "XSS",
+      "SQLI",
+      "CMDI",
+      "CODE_INJECTION",
+      "PATH_TRAVERSAL",
+      "SSRF",
+      "PROTO_POLLUTION",
+      "OPEN_REDIRECT",
+      "AUTHZ",
+      "WEAK_CRYPTO",
+      "SSTI",
+      "CSRF",
+      "XXE",
+      "LDAP_INJECTION",
+      "HPP",
+      "CRLF_INJECTION",
+      "CSSI",
+      "HTMLI",
+      "NOSQLI",
+      "HARDCODED_SECRETS",
+      "MASS_ASSIGNMENT",
+      "WEAK_COOKIE",
+      "INSECURE_JWT",
+      "RACE_CONDITION",
+      "INFO_DISCLOSURE",
+      "SAFE"
+    ],
+    "chance": {
+      "det_auroc": 0.5,
+      "pair_acc": 0.5,
+      "type_acc_forced": 0.1,
+      "type_mrr": 0.153,
+      "type_top3": 0.3,
+      "mean_logp_correct": -3.258
+    },
+    "shortcut_baselines": {
+      "iid": {
+        "chars": {
+          "det_auroc": 0.6919,
+          "pair_acc": 0.7727
+        },
+        "lines": {
+          "det_auroc": 0.6137,
+          "pair_acc": 0.7364
+        },
+        "comment_lines": {
+          "det_auroc": 0.5281,
+          "pair_acc": 0.5182
+        },
+        "best": {
+          "det_auroc": 0.6919,
+          "pair_acc": 0.7727
+        }
+      },
+      "ood_near": {
+        "chars": {
+          "det_auroc": 0.6758,
+          "pair_acc": 0.7133
+        },
+        "lines": {
+          "det_auroc": 0.5908,
+          "pair_acc": 0.6667
+        },
+        "comment_lines": {
+          "det_auroc": 0.5274,
+          "pair_acc": 0.5133
+        },
+        "best": {
+          "det_auroc": 0.6758,
+          "pair_acc": 0.7133
+        }
+      },
+      "ood_hard": {
+        "chars": {
+          "det_auroc": 0.664,
+          "pair_acc": 0.7636
+        },
+        "lines": {
+          "det_auroc": 0.5874,
+          "pair_acc": 0.6909
+        },
+        "comment_lines": {
+          "det_auroc": 0.5426,
+          "pair_acc": 0.5182
+        },
+        "best": {
+          "det_auroc": 0.664,
+          "pair_acc": 0.7636
+        }
+      },
+      "easy": {
+        "chars": {
+          "det_auroc": 0.515,
+          "pair_acc": 0.5
+        },
+        "lines": {
+          "det_auroc": 0.54,
+          "pair_acc": 0.5
+        },
+        "comment_lines": {
+          "det_auroc": 0.57,
+          "pair_acc": 0.5
+        },
+        "best": {
+          "det_auroc": 0.57,
+          "pair_acc": 0.5
+        }
+      }
+    },
+    "score_mode_resolved": "mean",
+    "label_tokens": {
+      "XSS": 2,
+      "SQLI": 2,
+      "CMDI": 2,
+      "CODE_INJECTION": 3,
+      "PATH_TRAVERSAL": 4,
+      "SSRF": 2,
+      "PROTO_POLLUTION": 3,
+      "OPEN_REDIRECT": 2,
+      "AUTHZ": 2,
+      "WEAK_CRYPTO": 3,
+      "SSTI": 3,
+      "CSRF": 2,
+      "XXE": 2,
+      "LDAP_INJECTION": 3,
+      "HPP": 2,
+      "CRLF_INJECTION": 4,
+      "CSSI": 2,
+      "HTMLI": 2,
+      "NOSQLI": 4,
+      "HARDCODED_SECRETS": 8,
+      "MASS_ASSIGNMENT": 4,
+      "WEAK_COOKIE": 3,
+      "INSECURE_JWT": 5,
+      "RACE_CONDITION": 3,
+      "INFO_DISCLOSURE": 5,
+      "SAFE": 1
+    },
+    "stopped_by_time_budget": null,
+    "diverged": false,
+    "final_train_loss": 0.0646,
+    "train_runtime": 6771.0307
+  },
+  "timings": {
+    "model_load_s": 1.06,
+    "train_s": 6771.17,
+    "eval_final_s": 6915.54,
+    "total_s": 13689.05
+  },
+  "curve": [
+    {
+      "step": 510,
+      "epoch": 6.0,
+      "train_loss": 0.0156,
+      "metrics": {
+        "iid/seen": {
+          "n": 220,
+          "n_vuln": 110,
+          "n_pairs": 110,
+          "acc": 0.9091,
+          "macro_recall": 0.8487,
+          "det_auroc": 0.981,
+          "det_bal_acc": 0.9227,
+          "det_recall_vuln": 0.9455,
+          "det_recall_safe": 0.9,
+          "type_acc_forced": 0.9455,
+          "type_mrr": 0.9614,
+          "type_top3": 0.9727,
+          "pair_acc": 0.9364,
+          "mean_logp_correct": -0.7262,
+          "pred_dist": {
+            "XSS": 1,
+            "SAFE": 105,
+            "SQLI": 7,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "PATH_TRAVERSAL": 3,
+            "SSRF": 3,
+            "PROTO_POLLUTION": 1,
+            "NOSQLI": 8,
+            "OPEN_REDIRECT": 1,
+            "WEAK_CRYPTO": 3,
+            "INSECURE_JWT": 7,
+            "SSTI": 7,
+            "CSRF": 6,
+            "XXE": 6,
+            "LDAP_INJECTION": 6,
+            "HPP": 5,
+            "HARDCODED_SECRETS": 6,
+            "CRLF_INJECTION": 6,
+            "CSSI": 6,
+            "HTMLI": 6,
+            "MASS_ASSIGNMENT": 6,
+            "WEAK_COOKIE": 6,
+            "RACE_CONDITION": 6,
+            "INFO_DISCLOSURE": 6
+          },
+          "recall_per_label": {
+            "XSS": 0.5,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.5,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.5,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 0.8333,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.8333,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.9
+          },
+          "ci95": {
+            "det_auroc": [
+              0.963,
+              0.9928
+            ],
+            "pair_acc": [
+              0.8909,
+              0.9727
+            ],
+            "type_acc_forced": [
+              0.9,
+              0.9818
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "XSS": 1,
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SAFE": 99,
+              "SQLI": 5,
+              "PATH_TRAVERSAL": 1,
+              "OPEN_REDIRECT": 1,
+              "SSRF": 1,
+              "INSECURE_JWT": 1,
+              "WEAK_CRYPTO": 1,
+              "NOSQLI": 1
+            },
+            "SQLI": {
+              "SQLI": 2
+            },
+            "CMDI": {
+              "CMDI": 2
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1,
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 2
+            },
+            "SSRF": {
+              "SSRF": 2
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 1,
+              "SAFE": 1
+            },
+            "OPEN_REDIRECT": {
+              "NOSQLI": 1,
+              "SAFE": 1
+            },
+            "AUTHZ": {
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 2
+            },
+            "SSTI": {
+              "SSTI": 6
+            },
+            "CSRF": {
+              "CSRF": 6
+            },
+            "XXE": {
+              "XXE": 6
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 6
+            },
+            "HPP": {
+              "HPP": 5,
+              "HARDCODED_SECRETS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 6
+            },
+            "CSSI": {
+              "CSSI": 6
+            },
+            "HTMLI": {
+              "HTMLI": 6
+            },
+            "NOSQLI": {
+              "NOSQLI": 6
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 5,
+              "SSTI": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 6
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 6
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 6
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 6
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 6
+            }
+          }
+        },
+        "iid[insufficient]/seen": {
+          "n": 68,
+          "n_vuln": 34,
+          "n_pairs": 34,
+          "acc": 0.8382,
+          "macro_recall": 0.7717,
+          "det_auroc": 0.9196,
+          "det_bal_acc": 0.8529,
+          "det_recall_vuln": 0.8529,
+          "det_recall_safe": 0.8529,
+          "type_acc_forced": 0.9118,
+          "type_mrr": 0.9324,
+          "type_top3": 0.9412,
+          "pair_acc": 0.8235,
+          "mean_logp_correct": -1.3164,
+          "pred_dist": {
+            "SAFE": 34,
+            "SQLI": 5,
+            "CMDI": 1,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 1,
+            "CSRF": 1,
+            "XXE": 2,
+            "LDAP_INJECTION": 1,
+            "HPP": 1,
+            "CRLF_INJECTION": 2,
+            "CSSI": 1,
+            "HTMLI": 2,
+            "NOSQLI": 4,
+            "HARDCODED_SECRETS": 2,
+            "SSTI": 1,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 1,
+            "RACE_CONDITION": 1,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.6667,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8529
+          },
+          "ci95": {
+            "det_auroc": [
+              0.833,
+              0.9749
+            ],
+            "pair_acc": [
+              0.6765,
+              0.9412
+            ],
+            "type_acc_forced": [
+              0.7941,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SAFE": 29,
+              "SQLI": 4,
+              "NOSQLI": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "SAFE": 1
+            },
+            "OPEN_REDIRECT": {
+              "SAFE": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "CSRF": {
+              "CSRF": 1
+            },
+            "XXE": {
+              "XXE": 2
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 1
+            },
+            "HPP": {
+              "HPP": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 2
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 2,
+              "SSTI": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "iid[plain]/seen": {
+          "n": 152,
+          "n_vuln": 76,
+          "n_pairs": 76,
+          "acc": 0.9408,
+          "macro_recall": 0.9123,
+          "det_auroc": 0.9969,
+          "det_bal_acc": 0.9539,
+          "det_recall_vuln": 0.9868,
+          "det_recall_safe": 0.9211,
+          "type_acc_forced": 0.9605,
+          "type_mrr": 0.9744,
+          "type_top3": 0.9868,
+          "pair_acc": 0.9868,
+          "mean_logp_correct": -0.4621,
+          "pred_dist": {
+            "XSS": 1,
+            "SAFE": 71,
+            "SQLI": 2,
+            "CMDI": 1,
+            "CODE_INJECTION": 1,
+            "PATH_TRAVERSAL": 2,
+            "SSRF": 2,
+            "PROTO_POLLUTION": 1,
+            "NOSQLI": 4,
+            "OPEN_REDIRECT": 1,
+            "WEAK_CRYPTO": 3,
+            "INSECURE_JWT": 6,
+            "SSTI": 6,
+            "CSRF": 5,
+            "XXE": 4,
+            "LDAP_INJECTION": 5,
+            "HPP": 4,
+            "HARDCODED_SECRETS": 4,
+            "CRLF_INJECTION": 4,
+            "CSSI": 5,
+            "HTMLI": 4,
+            "MASS_ASSIGNMENT": 4,
+            "WEAK_COOKIE": 4,
+            "RACE_CONDITION": 5,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 1.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 1.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 1.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 0.8,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.9211
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9905,
+              0.9997
+            ],
+            "pair_acc": [
+              0.9605,
+              1.0
+            ],
+            "type_acc_forced": [
+              0.9079,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "XSS": 1
+            },
+            "SAFE": {
+              "SAFE": 70,
+              "SQLI": 1,
+              "PATH_TRAVERSAL": 1,
+              "OPEN_REDIRECT": 1,
+              "SSRF": 1,
+              "INSECURE_JWT": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 1
+            },
+            "OPEN_REDIRECT": {
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 2
+            },
+            "SSTI": {
+              "SSTI": 6
+            },
+            "CSRF": {
+              "CSRF": 5
+            },
+            "XXE": {
+              "XXE": 4
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 5
+            },
+            "HPP": {
+              "HPP": 4,
+              "HARDCODED_SECRETS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 4
+            },
+            "CSSI": {
+              "CSSI": 5
+            },
+            "HTMLI": {
+              "HTMLI": 4
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 3
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 4
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 4
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 5
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 5
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "iid/shift": {
+          "n": 220,
+          "n_vuln": 110,
+          "n_pairs": 110,
+          "acc": 0.6409,
+          "macro_recall": 0.6017,
+          "det_auroc": 0.9479,
+          "det_bal_acc": 0.7955,
+          "det_recall_vuln": 0.9455,
+          "det_recall_safe": 0.6455,
+          "type_acc_forced": 0.6364,
+          "type_mrr": 0.6946,
+          "type_top3": 0.7091,
+          "pair_acc": 0.8909,
+          "mean_logp_correct": -1.4487,
+          "pred_dist": {
+            "SAFE": 77,
+            "XSS": 64,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "SSRF": 3,
+            "PROTO_POLLUTION": 1,
+            "WEAK_CRYPTO": 2,
+            "INSECURE_JWT": 5,
+            "SQLI": 3,
+            "SSTI": 5,
+            "OPEN_REDIRECT": 2,
+            "CSRF": 4,
+            "XXE": 4,
+            "INFO_DISCLOSURE": 8,
+            "LDAP_INJECTION": 4,
+            "HPP": 4,
+            "CRLF_INJECTION": 4,
+            "CSSI": 4,
+            "HTMLI": 4,
+            "NOSQLI": 4,
+            "HARDCODED_SECRETS": 3,
+            "MASS_ASSIGNMENT": 4,
+            "WEAK_COOKIE": 4,
+            "RACE_CONDITION": 4
+          },
+          "recall_per_label": {
+            "XSS": 0.5,
+            "SQLI": 0.5,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.5,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.5,
+            "OPEN_REDIRECT": 0.5,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 0.5,
+            "SSTI": 0.6667,
+            "CSRF": 0.6667,
+            "XXE": 0.6667,
+            "LDAP_INJECTION": 0.6667,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 0.6667,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 0.6667,
+            "HARDCODED_SECRETS": 0.5,
+            "MASS_ASSIGNMENT": 0.6667,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 0.6667,
+            "RACE_CONDITION": 0.6667,
+            "INFO_DISCLOSURE": 0.8333,
+            "SAFE": 0.6455
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9149,
+              0.9708
+            ],
+            "pair_acc": [
+              0.8364,
+              0.9455
+            ],
+            "type_acc_forced": [
+              0.5455,
+              0.7182
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1,
+              "XSS": 1
+            },
+            "SAFE": {
+              "SAFE": 71,
+              "XSS": 31,
+              "SSRF": 1,
+              "INSECURE_JWT": 1,
+              "SSTI": 1,
+              "INFO_DISCLOSURE": 3,
+              "SQLI": 2
+            },
+            "SQLI": {
+              "XSS": 1,
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 2
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1,
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1,
+              "OPEN_REDIRECT": 1
+            },
+            "SSRF": {
+              "SSRF": 2
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 1,
+              "XSS": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1,
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1,
+              "XSS": 1
+            },
+            "SSTI": {
+              "SSTI": 4,
+              "XSS": 2
+            },
+            "CSRF": {
+              "CSRF": 4,
+              "XSS": 2
+            },
+            "XXE": {
+              "XXE": 4,
+              "XSS": 2
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 4,
+              "XSS": 2
+            },
+            "HPP": {
+              "HPP": 4,
+              "SAFE": 1,
+              "XSS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 4,
+              "XSS": 2
+            },
+            "CSSI": {
+              "CSSI": 4,
+              "XSS": 2
+            },
+            "HTMLI": {
+              "HTMLI": 4,
+              "XSS": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 4,
+              "XSS": 2
+            },
+            "HARDCODED_SECRETS": {
+              "WEAK_CRYPTO": 1,
+              "HARDCODED_SECRETS": 3,
+              "XSS": 2
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 4,
+              "XSS": 2
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 4,
+              "XSS": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 4,
+              "XSS": 1,
+              "SAFE": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 4,
+              "XSS": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 5,
+              "XSS": 1
+            }
+          }
+        },
+        "iid[insufficient]/shift": {
+          "n": 68,
+          "n_vuln": 34,
+          "n_pairs": 34,
+          "acc": 0.5441,
+          "macro_recall": 0.5556,
+          "det_auroc": 0.8659,
+          "det_bal_acc": 0.7059,
+          "det_recall_vuln": 0.9118,
+          "det_recall_safe": 0.5,
+          "type_acc_forced": 0.5882,
+          "type_mrr": 0.6597,
+          "type_top3": 0.7059,
+          "pair_acc": 0.7647,
+          "mean_logp_correct": -1.9167,
+          "pred_dist": {
+            "XSS": 23,
+            "SQLI": 3,
+            "SSTI": 1,
+            "CMDI": 1,
+            "SAFE": 20,
+            "OPEN_REDIRECT": 2,
+            "SSRF": 1,
+            "XXE": 1,
+            "CRLF_INJECTION": 1,
+            "CSSI": 1,
+            "HTMLI": 2,
+            "NOSQLI": 3,
+            "WEAK_CRYPTO": 1,
+            "HARDCODED_SECRETS": 1,
+            "MASS_ASSIGNMENT": 1,
+            "INSECURE_JWT": 1,
+            "RACE_CONDITION": 1,
+            "INFO_DISCLOSURE": 4
+          },
+          "recall_per_label": {
+            "XSS": 1.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "CSRF": 0.0,
+            "XXE": 0.5,
+            "LDAP_INJECTION": 0.0,
+            "HPP": 0.0,
+            "CRLF_INJECTION": 0.5,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.3333,
+            "MASS_ASSIGNMENT": 0.5,
+            "WEAK_COOKIE": 0.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.5
+          },
+          "ci95": {
+            "det_auroc": [
+              0.7716,
+              0.9369
+            ],
+            "pair_acc": [
+              0.6176,
+              0.9118
+            ],
+            "type_acc_forced": [
+              0.4118,
+              0.7353
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "XSS": 1
+            },
+            "SAFE": {
+              "XSS": 13,
+              "SSTI": 1,
+              "SAFE": 17,
+              "SQLI": 2,
+              "INFO_DISCLOSURE": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "OPEN_REDIRECT": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "XSS": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "CSRF": {
+              "XSS": 1
+            },
+            "XXE": {
+              "XXE": 1,
+              "XSS": 1
+            },
+            "LDAP_INJECTION": {
+              "XSS": 1
+            },
+            "HPP": {
+              "SAFE": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 1,
+              "XSS": 1
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "WEAK_CRYPTO": 1,
+              "XSS": 1,
+              "HARDCODED_SECRETS": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 1,
+              "XSS": 1
+            },
+            "WEAK_COOKIE": {
+              "XSS": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "iid[plain]/shift": {
+          "n": 152,
+          "n_vuln": 76,
+          "n_pairs": 76,
+          "acc": 0.6842,
+          "macro_recall": 0.5959,
+          "det_auroc": 0.977,
+          "det_bal_acc": 0.8355,
+          "det_recall_vuln": 0.9605,
+          "det_recall_safe": 0.7105,
+          "type_acc_forced": 0.6579,
+          "type_mrr": 0.7102,
+          "type_top3": 0.7105,
+          "pair_acc": 0.9474,
+          "mean_logp_correct": -1.2393,
+          "pred_dist": {
+            "SAFE": 57,
+            "XSS": 41,
+            "CMDI": 1,
+            "CODE_INJECTION": 1,
+            "SSRF": 2,
+            "PROTO_POLLUTION": 1,
+            "WEAK_CRYPTO": 1,
+            "INSECURE_JWT": 4,
+            "SSTI": 4,
+            "CSRF": 4,
+            "XXE": 3,
+            "INFO_DISCLOSURE": 4,
+            "LDAP_INJECTION": 4,
+            "HPP": 4,
+            "CRLF_INJECTION": 3,
+            "CSSI": 3,
+            "HTMLI": 2,
+            "NOSQLI": 1,
+            "HARDCODED_SECRETS": 2,
+            "MASS_ASSIGNMENT": 3,
+            "WEAK_COOKIE": 4,
+            "RACE_CONDITION": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 0.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 1.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 1.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 0.5,
+            "SSTI": 0.6667,
+            "CSRF": 0.8,
+            "XXE": 0.75,
+            "LDAP_INJECTION": 0.8,
+            "HPP": 0.8,
+            "CRLF_INJECTION": 0.75,
+            "CSSI": 0.6,
+            "HTMLI": 0.5,
+            "NOSQLI": 0.3333,
+            "HARDCODED_SECRETS": 0.6667,
+            "MASS_ASSIGNMENT": 0.75,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 0.6,
+            "RACE_CONDITION": 0.6,
+            "INFO_DISCLOSURE": 0.6667,
+            "SAFE": 0.7105
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9529,
+              0.9934
+            ],
+            "pair_acc": [
+              0.8947,
+              0.9868
+            ],
+            "type_acc_forced": [
+              0.5526,
+              0.7632
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SAFE": 54,
+              "XSS": 18,
+              "SSRF": 1,
+              "INSECURE_JWT": 1,
+              "INFO_DISCLOSURE": 2
+            },
+            "SQLI": {
+              "XSS": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1,
+              "XSS": 1
+            },
+            "SSTI": {
+              "SSTI": 4,
+              "XSS": 2
+            },
+            "CSRF": {
+              "CSRF": 4,
+              "XSS": 1
+            },
+            "XXE": {
+              "XXE": 3,
+              "XSS": 1
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 4,
+              "XSS": 1
+            },
+            "HPP": {
+              "HPP": 4,
+              "XSS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3,
+              "XSS": 1
+            },
+            "CSSI": {
+              "CSSI": 3,
+              "XSS": 2
+            },
+            "HTMLI": {
+              "XSS": 2,
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "XSS": 2,
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 2,
+              "XSS": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 3,
+              "XSS": 1
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 4
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 3,
+              "XSS": 1,
+              "SAFE": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 3,
+              "XSS": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 2,
+              "XSS": 1
+            }
+          }
+        },
+        "iid/tta2": {
+          "n": 220,
+          "n_vuln": 110,
+          "n_pairs": 110,
+          "acc": 0.8727,
+          "macro_recall": 0.8035,
+          "det_auroc": 0.9785,
+          "det_bal_acc": 0.9227,
+          "det_recall_vuln": 0.9545,
+          "det_recall_safe": 0.8909,
+          "type_acc_forced": 0.8636,
+          "type_mrr": 0.9081,
+          "type_top3": 0.9545,
+          "pair_acc": 0.9364,
+          "mean_logp_correct": -0.8811,
+          "pred_dist": {
+            "SAFE": 103,
+            "SQLI": 7,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "XSS": 2,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 3,
+            "PROTO_POLLUTION": 2,
+            "OPEN_REDIRECT": 4,
+            "WEAK_CRYPTO": 3,
+            "INSECURE_JWT": 7,
+            "SSTI": 6,
+            "CSRF": 6,
+            "XXE": 6,
+            "LDAP_INJECTION": 6,
+            "HPP": 4,
+            "HARDCODED_SECRETS": 13,
+            "CRLF_INJECTION": 6,
+            "CSSI": 4,
+            "HTMLI": 4,
+            "NOSQLI": 7,
+            "MASS_ASSIGNMENT": 6,
+            "WEAK_COOKIE": 4,
+            "RACE_CONDITION": 6,
+            "INFO_DISCLOSURE": 7
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.5,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 1.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.8333,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8909
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9575,
+              0.9917
+            ],
+            "pair_acc": [
+              0.8909,
+              0.9727
+            ],
+            "type_acc_forced": [
+              0.8,
+              0.9182
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 2
+            },
+            "SAFE": {
+              "SAFE": 98,
+              "SQLI": 5,
+              "PATH_TRAVERSAL": 1,
+              "OPEN_REDIRECT": 1,
+              "SSRF": 1,
+              "INSECURE_JWT": 1,
+              "XSS": 1,
+              "NOSQLI": 1,
+              "INFO_DISCLOSURE": 1
+            },
+            "SQLI": {
+              "SQLI": 2
+            },
+            "CMDI": {
+              "CMDI": 2
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1,
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1,
+              "OPEN_REDIRECT": 1
+            },
+            "SSRF": {
+              "SSRF": 2
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 2
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 2
+            },
+            "AUTHZ": {
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 2
+            },
+            "SSTI": {
+              "SSTI": 6
+            },
+            "CSRF": {
+              "CSRF": 6
+            },
+            "XXE": {
+              "XXE": 6
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 6
+            },
+            "HPP": {
+              "HPP": 4,
+              "HARDCODED_SECRETS": 2
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 6
+            },
+            "CSSI": {
+              "CSSI": 4,
+              "HARDCODED_SECRETS": 2
+            },
+            "HTMLI": {
+              "HTMLI": 4,
+              "HARDCODED_SECRETS": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 6
+            },
+            "HARDCODED_SECRETS": {
+              "WEAK_CRYPTO": 1,
+              "HARDCODED_SECRETS": 5
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 6
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 4,
+              "HARDCODED_SECRETS": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 6
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 6
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 6
+            }
+          }
+        },
+        "ood_near/seen": {
+          "n": 150,
+          "n_vuln": 75,
+          "n_pairs": 75,
+          "acc": 0.8333,
+          "macro_recall": 0.7779,
+          "det_auroc": 0.9657,
+          "det_bal_acc": 0.8933,
+          "det_recall_vuln": 0.8933,
+          "det_recall_safe": 0.8933,
+          "type_acc_forced": 0.7733,
+          "type_mrr": 0.8415,
+          "type_top3": 0.88,
+          "pair_acc": 0.9067,
+          "mean_logp_correct": -0.9788,
+          "pred_dist": {
+            "SSTI": 7,
+            "SAFE": 75,
+            "NOSQLI": 7,
+            "CMDI": 2,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 4,
+            "WEAK_CRYPTO": 4,
+            "OPEN_REDIRECT": 2,
+            "XSS": 2,
+            "SQLI": 4,
+            "CODE_INJECTION": 1,
+            "RACE_CONDITION": 4,
+            "CRLF_INJECTION": 4,
+            "CSRF": 3,
+            "XXE": 3,
+            "LDAP_INJECTION": 3,
+            "HPP": 3,
+            "CSSI": 3,
+            "HTMLI": 3,
+            "HARDCODED_SECRETS": 3,
+            "MASS_ASSIGNMENT": 3,
+            "WEAK_COOKIE": 3,
+            "INSECURE_JWT": 3,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.3333,
+            "SQLI": 0.3333,
+            "CMDI": 0.6667,
+            "CODE_INJECTION": 0.3333,
+            "PATH_TRAVERSAL": 0.3333,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.3333,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8933
+          },
+          "ci95": {
+            "det_auroc": [
+              0.938,
+              0.9863
+            ],
+            "pair_acc": [
+              0.84,
+              0.96
+            ],
+            "type_acc_forced": [
+              0.68,
+              0.8533
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SSTI": 1,
+              "OPEN_REDIRECT": 1,
+              "XSS": 1
+            },
+            "SAFE": {
+              "SAFE": 67,
+              "NOSQLI": 1,
+              "XSS": 1,
+              "SQLI": 3,
+              "SSTI": 1,
+              "CRLF_INJECTION": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "NOSQLI": 1,
+              "SQLI": 1,
+              "SSTI": 1
+            },
+            "CMDI": {
+              "CMDI": 2,
+              "SAFE": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1,
+              "CODE_INJECTION": 1,
+              "SSTI": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1,
+              "SAFE": 1,
+              "RACE_CONDITION": 1
+            },
+            "SSRF": {
+              "SSRF": 3
+            },
+            "PROTO_POLLUTION": {
+              "SAFE": 3
+            },
+            "OPEN_REDIRECT": {
+              "SSRF": 1,
+              "OPEN_REDIRECT": 1,
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "NOSQLI": 1,
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 3
+            },
+            "SSTI": {
+              "SSTI": 3
+            },
+            "CSRF": {
+              "CSRF": 3
+            },
+            "XXE": {
+              "XXE": 3
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 3
+            },
+            "HPP": {
+              "HPP": 3
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3
+            },
+            "CSSI": {
+              "CSSI": 3
+            },
+            "HTMLI": {
+              "HTMLI": 3
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 3
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 3
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 3
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 3
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 3
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "ood_near[insufficient]/seen": {
+          "n": 26,
+          "n_vuln": 13,
+          "n_pairs": 13,
+          "acc": 0.9615,
+          "macro_recall": 0.9936,
+          "det_auroc": 0.9882,
+          "det_bal_acc": 0.9615,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.9231,
+          "type_acc_forced": 1.0,
+          "type_mrr": 1.0,
+          "type_top3": 1.0,
+          "pair_acc": 0.9231,
+          "mean_logp_correct": -0.8365,
+          "pred_dist": {
+            "XXE": 1,
+            "SAFE": 12,
+            "LDAP_INJECTION": 1,
+            "CSSI": 1,
+            "HTMLI": 1,
+            "NOSQLI": 1,
+            "HARDCODED_SECRETS": 1,
+            "SQLI": 1,
+            "MASS_ASSIGNMENT": 1,
+            "WEAK_COOKIE": 1,
+            "INSECURE_JWT": 1,
+            "RACE_CONDITION": 2,
+            "INFO_DISCLOSURE": 2
+          },
+          "recall_per_label": {
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.9231
+          },
+          "ci95": {
+            "det_auroc": [
+              0.929,
+              1.0
+            ],
+            "pair_acc": [
+              0.7692,
+              1.0
+            ],
+            "type_acc_forced": [
+              1.0,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XXE": {
+              "XXE": 1
+            },
+            "SAFE": {
+              "SAFE": 12,
+              "SQLI": 1
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 1
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 1
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 2
+            }
+          }
+        },
+        "ood_near[plain]/seen": {
+          "n": 124,
+          "n_vuln": 62,
+          "n_pairs": 62,
+          "acc": 0.8065,
+          "macro_recall": 0.7777,
+          "det_auroc": 0.9628,
+          "det_bal_acc": 0.879,
+          "det_recall_vuln": 0.871,
+          "det_recall_safe": 0.8871,
+          "type_acc_forced": 0.7258,
+          "type_mrr": 0.8083,
+          "type_top3": 0.8548,
+          "pair_acc": 0.9032,
+          "mean_logp_correct": -1.0086,
+          "pred_dist": {
+            "SSTI": 7,
+            "SAFE": 63,
+            "NOSQLI": 6,
+            "CMDI": 2,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 4,
+            "WEAK_CRYPTO": 4,
+            "OPEN_REDIRECT": 2,
+            "XSS": 2,
+            "SQLI": 3,
+            "CODE_INJECTION": 1,
+            "RACE_CONDITION": 2,
+            "CRLF_INJECTION": 4,
+            "CSRF": 3,
+            "XXE": 2,
+            "LDAP_INJECTION": 2,
+            "HPP": 3,
+            "CSSI": 2,
+            "HTMLI": 2,
+            "HARDCODED_SECRETS": 2,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 2,
+            "INFO_DISCLOSURE": 1
+          },
+          "recall_per_label": {
+            "XSS": 0.3333,
+            "SQLI": 0.3333,
+            "CMDI": 0.6667,
+            "CODE_INJECTION": 0.3333,
+            "PATH_TRAVERSAL": 0.3333,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.3333,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8871
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9274,
+              0.9862
+            ],
+            "pair_acc": [
+              0.8226,
+              0.9677
+            ],
+            "type_acc_forced": [
+              0.6129,
+              0.823
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SSTI": 1,
+              "OPEN_REDIRECT": 1,
+              "XSS": 1
+            },
+            "SAFE": {
+              "SAFE": 55,
+              "NOSQLI": 1,
+              "XSS": 1,
+              "SQLI": 2,
+              "SSTI": 1,
+              "CRLF_INJECTION": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "NOSQLI": 1,
+              "SQLI": 1,
+              "SSTI": 1
+            },
+            "CMDI": {
+              "CMDI": 2,
+              "SAFE": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1,
+              "CODE_INJECTION": 1,
+              "SSTI": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1,
+              "SAFE": 1,
+              "RACE_CONDITION": 1
+            },
+            "SSRF": {
+              "SSRF": 3
+            },
+            "PROTO_POLLUTION": {
+              "SAFE": 3
+            },
+            "OPEN_REDIRECT": {
+              "SSRF": 1,
+              "OPEN_REDIRECT": 1,
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "NOSQLI": 1,
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 3
+            },
+            "SSTI": {
+              "SSTI": 3
+            },
+            "CSRF": {
+              "CSRF": 3
+            },
+            "XXE": {
+              "XXE": 2
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 2
+            },
+            "HPP": {
+              "HPP": 3
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3
+            },
+            "CSSI": {
+              "CSSI": 2
+            },
+            "HTMLI": {
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 2
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 2
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 2
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 1
+            }
+          }
+        },
+        "ood_near/shift": {
+          "n": 150,
+          "n_vuln": 75,
+          "n_pairs": 75,
+          "acc": 0.5933,
+          "macro_recall": 0.5379,
+          "det_auroc": 0.9074,
+          "det_bal_acc": 0.7867,
+          "det_recall_vuln": 0.92,
+          "det_recall_safe": 0.6533,
+          "type_acc_forced": 0.5333,
+          "type_mrr": 0.6135,
+          "type_top3": 0.64,
+          "pair_acc": 0.88,
+          "mean_logp_correct": -1.7608,
+          "pred_dist": {
+            "WEAK_CRYPTO": 5,
+            "SAFE": 55,
+            "XSS": 42,
+            "CMDI": 2,
+            "SSRF": 2,
+            "OPEN_REDIRECT": 2,
+            "NOSQLI": 4,
+            "SQLI": 4,
+            "INFO_DISCLOSURE": 5,
+            "RACE_CONDITION": 3,
+            "SSTI": 4,
+            "PATH_TRAVERSAL": 1,
+            "CSRF": 2,
+            "XXE": 2,
+            "LDAP_INJECTION": 2,
+            "HPP": 2,
+            "CRLF_INJECTION": 2,
+            "CSSI": 2,
+            "HTMLI": 2,
+            "HARDCODED_SECRETS": 1,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 2
+          },
+          "recall_per_label": {
+            "XSS": 0.3333,
+            "SQLI": 0.6667,
+            "CMDI": 0.6667,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 0.6667,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.3333,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 0.6667,
+            "SSTI": 0.6667,
+            "CSRF": 0.6667,
+            "XXE": 0.6667,
+            "LDAP_INJECTION": 0.6667,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 0.6667,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 0.6667,
+            "HARDCODED_SECRETS": 0.3333,
+            "MASS_ASSIGNMENT": 0.6667,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 0.6667,
+            "RACE_CONDITION": 0.6667,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.6533
+          },
+          "ci95": {
+            "det_auroc": [
+              0.8567,
+              0.9483
+            ],
+            "pair_acc": [
+              0.8,
+              0.9467
+            ],
+            "type_acc_forced": [
+              0.4133,
+              0.64
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "WEAK_CRYPTO": 1,
+              "XSS": 1,
+              "INFO_DISCLOSURE": 1
+            },
+            "SAFE": {
+              "SAFE": 49,
+              "XSS": 19,
+              "SQLI": 2,
+              "INFO_DISCLOSURE": 1,
+              "RACE_CONDITION": 1,
+              "SSTI": 1,
+              "PATH_TRAVERSAL": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "XSS": 1,
+              "SQLI": 2
+            },
+            "CMDI": {
+              "CMDI": 2,
+              "SAFE": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1,
+              "XSS": 1,
+              "SSTI": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1,
+              "SAFE": 2
+            },
+            "SSRF": {
+              "SSRF": 2,
+              "XSS": 1
+            },
+            "PROTO_POLLUTION": {
+              "OPEN_REDIRECT": 1,
+              "XSS": 1,
+              "SAFE": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1,
+              "OPEN_REDIRECT": 1,
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "NOSQLI": 1,
+              "SAFE": 1,
+              "XSS": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 2,
+              "XSS": 1
+            },
+            "SSTI": {
+              "SSTI": 2,
+              "XSS": 1
+            },
+            "CSRF": {
+              "CSRF": 2,
+              "XSS": 1
+            },
+            "XXE": {
+              "XXE": 2,
+              "XSS": 1
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 2,
+              "XSS": 1
+            },
+            "HPP": {
+              "HPP": 2,
+              "XSS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 2,
+              "XSS": 1
+            },
+            "CSSI": {
+              "CSSI": 2,
+              "XSS": 1
+            },
+            "HTMLI": {
+              "HTMLI": 2,
+              "XSS": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 2,
+              "XSS": 1
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 1,
+              "XSS": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 2,
+              "XSS": 1
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 2,
+              "XSS": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 2,
+              "XSS": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 2,
+              "XSS": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "ood_near[insufficient]/shift": {
+          "n": 26,
+          "n_vuln": 13,
+          "n_pairs": 13,
+          "acc": 0.6154,
+          "macro_recall": 0.5929,
+          "det_auroc": 0.9645,
+          "det_bal_acc": 0.8077,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.6154,
+          "type_acc_forced": 0.6154,
+          "type_mrr": 0.6994,
+          "type_top3": 0.7692,
+          "pair_acc": 0.8462,
+          "mean_logp_correct": -1.6306,
+          "pred_dist": {
+            "XSS": 8,
+            "LDAP_INJECTION": 1,
+            "SAFE": 8,
+            "CSSI": 1,
+            "HTMLI": 1,
+            "NOSQLI": 1,
+            "WEAK_CRYPTO": 1,
+            "SQLI": 1,
+            "WEAK_COOKIE": 1,
+            "RACE_CONDITION": 1,
+            "INFO_DISCLOSURE": 2
+          },
+          "recall_per_label": {
+            "XXE": 0.0,
+            "LDAP_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.0,
+            "MASS_ASSIGNMENT": 0.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 0.0,
+            "RACE_CONDITION": 0.5,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.6154
+          },
+          "ci95": {
+            "det_auroc": [
+              0.8578,
+              1.0
+            ],
+            "pair_acc": [
+              0.6154,
+              1.0
+            ],
+            "type_acc_forced": [
+              0.3846,
+              0.8462
+            ]
+          },
+          "confusion": {
+            "XXE": {
+              "XSS": 1
+            },
+            "SAFE": {
+              "XSS": 4,
+              "SAFE": 8,
+              "SQLI": 1
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 1
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "WEAK_CRYPTO": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "XSS": 1
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "XSS": 1
+            },
+            "RACE_CONDITION": {
+              "XSS": 1,
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 2
+            }
+          }
+        },
+        "ood_near[plain]/shift": {
+          "n": 124,
+          "n_vuln": 62,
+          "n_pairs": 62,
+          "acc": 0.5887,
+          "macro_recall": 0.5639,
+          "det_auroc": 0.8972,
+          "det_bal_acc": 0.7823,
+          "det_recall_vuln": 0.9032,
+          "det_recall_safe": 0.6613,
+          "type_acc_forced": 0.5161,
+          "type_mrr": 0.5955,
+          "type_top3": 0.6129,
+          "pair_acc": 0.8871,
+          "mean_logp_correct": -1.7882,
+          "pred_dist": {
+            "WEAK_CRYPTO": 4,
+            "SAFE": 47,
+            "XSS": 34,
+            "CMDI": 2,
+            "SSRF": 2,
+            "OPEN_REDIRECT": 2,
+            "NOSQLI": 3,
+            "SQLI": 3,
+            "INFO_DISCLOSURE": 3,
+            "RACE_CONDITION": 2,
+            "SSTI": 4,
+            "PATH_TRAVERSAL": 1,
+            "CSRF": 2,
+            "XXE": 2,
+            "LDAP_INJECTION": 1,
+            "HPP": 2,
+            "CRLF_INJECTION": 2,
+            "CSSI": 1,
+            "HTMLI": 1,
+            "HARDCODED_SECRETS": 1,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 1,
+            "INSECURE_JWT": 2
+          },
+          "recall_per_label": {
+            "XSS": 0.3333,
+            "SQLI": 0.6667,
+            "CMDI": 0.6667,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 0.6667,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.3333,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 0.6667,
+            "SSTI": 0.6667,
+            "CSRF": 0.6667,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 0.5,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 0.6667,
+            "CSSI": 0.5,
+            "HTMLI": 0.5,
+            "NOSQLI": 0.5,
+            "HARDCODED_SECRETS": 0.5,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 0.5,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.6613
+          },
+          "ci95": {
+            "det_auroc": [
+              0.8353,
+              0.9454
+            ],
+            "pair_acc": [
+              0.8065,
+              0.9516
+            ],
+            "type_acc_forced": [
+              0.3871,
+              0.6452
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "WEAK_CRYPTO": 1,
+              "XSS": 1,
+              "INFO_DISCLOSURE": 1
+            },
+            "SAFE": {
+              "SAFE": 41,
+              "XSS": 15,
+              "SQLI": 1,
+              "INFO_DISCLOSURE": 1,
+              "RACE_CONDITION": 1,
+              "SSTI": 1,
+              "PATH_TRAVERSAL": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "XSS": 1,
+              "SQLI": 2
+            },
+            "CMDI": {
+              "CMDI": 2,
+              "SAFE": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1,
+              "XSS": 1,
+              "SSTI": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1,
+              "SAFE": 2
+            },
+            "SSRF": {
+              "SSRF": 2,
+              "XSS": 1
+            },
+            "PROTO_POLLUTION": {
+              "OPEN_REDIRECT": 1,
+              "XSS": 1,
+              "SAFE": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1,
+              "OPEN_REDIRECT": 1,
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "NOSQLI": 1,
+              "SAFE": 1,
+              "XSS": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 2,
+              "XSS": 1
+            },
+            "SSTI": {
+              "SSTI": 2,
+              "XSS": 1
+            },
+            "CSRF": {
+              "CSRF": 2,
+              "XSS": 1
+            },
+            "XXE": {
+              "XXE": 2
+            },
+            "LDAP_INJECTION": {
+              "XSS": 1,
+              "LDAP_INJECTION": 1
+            },
+            "HPP": {
+              "HPP": 2,
+              "XSS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 2,
+              "XSS": 1
+            },
+            "CSSI": {
+              "XSS": 1,
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 1,
+              "XSS": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 1,
+              "XSS": 1
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 1,
+              "XSS": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "XSS": 1,
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 2
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 1
+            }
+          }
+        },
+        "ood_near/tta2": {
+          "n": 150,
+          "n_vuln": 75,
+          "n_pairs": 75,
+          "acc": 0.7933,
+          "macro_recall": 0.701,
+          "det_auroc": 0.9572,
+          "det_bal_acc": 0.8867,
+          "det_recall_vuln": 0.88,
+          "det_recall_safe": 0.8933,
+          "type_acc_forced": 0.7067,
+          "type_mrr": 0.7993,
+          "type_top3": 0.8533,
+          "pair_acc": 0.92,
+          "mean_logp_correct": -1.1742,
+          "pred_dist": {
+            "WEAK_CRYPTO": 5,
+            "SAFE": 76,
+            "SQLI": 5,
+            "NOSQLI": 6,
+            "CMDI": 1,
+            "SSRF": 2,
+            "OPEN_REDIRECT": 4,
+            "XSS": 1,
+            "CODE_INJECTION": 1,
+            "HTMLI": 3,
+            "SSTI": 6,
+            "RACE_CONDITION": 4,
+            "CRLF_INJECTION": 4,
+            "HARDCODED_SECRETS": 8,
+            "CSRF": 3,
+            "XXE": 3,
+            "LDAP_INJECTION": 3,
+            "HPP": 2,
+            "CSSI": 2,
+            "MASS_ASSIGNMENT": 3,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 3,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 0.6667,
+            "CMDI": 0.3333,
+            "CODE_INJECTION": 0.3333,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 0.6667,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.6667,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8933
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9257,
+              0.9829
+            ],
+            "pair_acc": [
+              0.8533,
+              0.9733
+            ],
+            "type_acc_forced": [
+              0.6,
+              0.8
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "WEAK_CRYPTO": 1,
+              "OPEN_REDIRECT": 1,
+              "HTMLI": 1
+            },
+            "SAFE": {
+              "SAFE": 67,
+              "NOSQLI": 1,
+              "XSS": 1,
+              "SQLI": 3,
+              "SSTI": 1,
+              "CRLF_INJECTION": 1,
+              "WEAK_CRYPTO": 1
+            },
+            "SQLI": {
+              "SQLI": 2,
+              "SSTI": 1
+            },
+            "CMDI": {
+              "CMDI": 1,
+              "SAFE": 2
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1,
+              "CODE_INJECTION": 1,
+              "SSTI": 1
+            },
+            "PATH_TRAVERSAL": {
+              "SAFE": 2,
+              "RACE_CONDITION": 1
+            },
+            "SSRF": {
+              "SSRF": 2,
+              "HARDCODED_SECRETS": 1
+            },
+            "PROTO_POLLUTION": {
+              "OPEN_REDIRECT": 1,
+              "SAFE": 2
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 2,
+              "NOSQLI": 1
+            },
+            "AUTHZ": {
+              "NOSQLI": 1,
+              "SAFE": 2
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 3
+            },
+            "SSTI": {
+              "SSTI": 3
+            },
+            "CSRF": {
+              "CSRF": 3
+            },
+            "XXE": {
+              "XXE": 3
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 3
+            },
+            "HPP": {
+              "HPP": 2,
+              "HARDCODED_SECRETS": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3
+            },
+            "CSSI": {
+              "CSSI": 2,
+              "HARDCODED_SECRETS": 1
+            },
+            "HTMLI": {
+              "HTMLI": 2,
+              "HARDCODED_SECRETS": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 3
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 3
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 2,
+              "HARDCODED_SECRETS": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 3
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 3
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "ood_hard/seen": {
+          "n": 110,
+          "n_vuln": 55,
+          "n_pairs": 55,
+          "acc": 0.9182,
+          "macro_recall": 0.8427,
+          "det_auroc": 0.962,
+          "det_bal_acc": 0.9273,
+          "det_recall_vuln": 0.9455,
+          "det_recall_safe": 0.9091,
+          "type_acc_forced": 0.9273,
+          "type_mrr": 0.9408,
+          "type_top3": 0.9455,
+          "pair_acc": 0.9273,
+          "mean_logp_correct": -0.6504,
+          "pred_dist": {
+            "SAFE": 53,
+            "SSTI": 4,
+            "SQLI": 1,
+            "NOSQLI": 5,
+            "CMDI": 2,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 1,
+            "OPEN_REDIRECT": 2,
+            "WEAK_CRYPTO": 1,
+            "CSRF": 3,
+            "XXE": 3,
+            "LDAP_INJECTION": 3,
+            "HPP": 3,
+            "CRLF_INJECTION": 3,
+            "CSSI": 3,
+            "HTMLI": 3,
+            "HARDCODED_SECRETS": 4,
+            "MASS_ASSIGNMENT": 3,
+            "WEAK_COOKIE": 3,
+            "INSECURE_JWT": 3,
+            "RACE_CONDITION": 3,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.9091
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9127,
+              0.995
+            ],
+            "pair_acc": [
+              0.8545,
+              0.9818
+            ],
+            "type_acc_forced": [
+              0.8545,
+              0.9818
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SSTI": 1,
+              "NOSQLI": 2,
+              "CMDI": 1,
+              "SAFE": 50,
+              "HARDCODED_SECRETS": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "OPEN_REDIRECT": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            },
+            "SSTI": {
+              "SSTI": 3
+            },
+            "CSRF": {
+              "CSRF": 3
+            },
+            "XXE": {
+              "XXE": 3
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 3
+            },
+            "HPP": {
+              "HPP": 3
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3
+            },
+            "CSSI": {
+              "CSSI": 3
+            },
+            "HTMLI": {
+              "HTMLI": 3
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 3
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 3
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 3
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 3
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 3
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "ood_hard[insufficient]/seen": {
+          "n": 54,
+          "n_vuln": 27,
+          "n_pairs": 27,
+          "acc": 0.8519,
+          "macro_recall": 0.8196,
+          "det_auroc": 0.9012,
+          "det_bal_acc": 0.8704,
+          "det_recall_vuln": 0.8889,
+          "det_recall_safe": 0.8519,
+          "type_acc_forced": 0.8519,
+          "type_mrr": 0.8795,
+          "type_top3": 0.8889,
+          "pair_acc": 0.8519,
+          "mean_logp_correct": -1.0344,
+          "pred_dist": {
+            "SAFE": 26,
+            "SSTI": 1,
+            "SQLI": 1,
+            "NOSQLI": 2,
+            "CMDI": 2,
+            "PATH_TRAVERSAL": 1,
+            "SSRF": 1,
+            "OPEN_REDIRECT": 2,
+            "WEAK_CRYPTO": 1,
+            "CSRF": 2,
+            "XXE": 2,
+            "HPP": 1,
+            "CRLF_INJECTION": 1,
+            "CSSI": 2,
+            "HTMLI": 1,
+            "HARDCODED_SECRETS": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 1,
+            "RACE_CONDITION": 1,
+            "INFO_DISCLOSURE": 2
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8519
+          },
+          "ci95": {
+            "det_auroc": [
+              0.7969,
+              0.9808
+            ],
+            "pair_acc": [
+              0.7037,
+              0.963
+            ],
+            "type_acc_forced": [
+              0.7037,
+              0.963
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SSTI": 1,
+              "NOSQLI": 1,
+              "CMDI": 1,
+              "SAFE": 23,
+              "HARDCODED_SECRETS": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "OPEN_REDIRECT": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            },
+            "CSRF": {
+              "CSRF": 2
+            },
+            "XXE": {
+              "XXE": 2
+            },
+            "HPP": {
+              "HPP": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 1
+            },
+            "CSSI": {
+              "CSSI": 2
+            },
+            "HTMLI": {
+              "HTMLI": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 1
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 2
+            }
+          }
+        },
+        "ood_hard[plain]/seen": {
+          "n": 56,
+          "n_vuln": 28,
+          "n_pairs": 28,
+          "acc": 0.9821,
+          "macro_recall": 0.9978,
+          "det_auroc": 1.0,
+          "det_bal_acc": 0.9821,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.9643,
+          "type_acc_forced": 1.0,
+          "type_mrr": 1.0,
+          "type_top3": 1.0,
+          "pair_acc": 1.0,
+          "mean_logp_correct": -0.2802,
+          "pred_dist": {
+            "SSTI": 3,
+            "SAFE": 27,
+            "NOSQLI": 3,
+            "CSRF": 1,
+            "XXE": 1,
+            "LDAP_INJECTION": 3,
+            "HPP": 2,
+            "CRLF_INJECTION": 2,
+            "CSSI": 1,
+            "HTMLI": 2,
+            "HARDCODED_SECRETS": 2,
+            "MASS_ASSIGNMENT": 3,
+            "WEAK_COOKIE": 1,
+            "INSECURE_JWT": 2,
+            "RACE_CONDITION": 2,
+            "INFO_DISCLOSURE": 1
+          },
+          "recall_per_label": {
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 1.0,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 1.0,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.9643
+          },
+          "ci95": {
+            "det_auroc": [
+              1.0,
+              1.0
+            ],
+            "pair_acc": [
+              1.0,
+              1.0
+            ],
+            "type_acc_forced": [
+              1.0,
+              1.0
+            ]
+          },
+          "confusion": {
+            "SSTI": {
+              "SSTI": 3
+            },
+            "SAFE": {
+              "SAFE": 27,
+              "NOSQLI": 1
+            },
+            "CSRF": {
+              "CSRF": 1
+            },
+            "XXE": {
+              "XXE": 1
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 3
+            },
+            "HPP": {
+              "HPP": 2
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 2
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 2
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 2
+            },
+            "MASS_ASSIGNMENT": {
+              "MASS_ASSIGNMENT": 3
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 2
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 1
+            }
+          }
+        },
+        "ood_hard/shift": {
+          "n": 110,
+          "n_vuln": 55,
+          "n_pairs": 55,
+          "acc": 0.6364,
+          "macro_recall": 0.4881,
+          "det_auroc": 0.8949,
+          "det_bal_acc": 0.8,
+          "det_recall_vuln": 0.9091,
+          "det_recall_safe": 0.6909,
+          "type_acc_forced": 0.6,
+          "type_mrr": 0.6736,
+          "type_top3": 0.7091,
+          "pair_acc": 0.8909,
+          "mean_logp_correct": -1.6397,
+          "pred_dist": {
+            "SAFE": 43,
+            "XSS": 29,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "PATH_TRAVERSAL": 1,
+            "WEAK_CRYPTO": 1,
+            "SSTI": 3,
+            "CSRF": 2,
+            "XXE": 2,
+            "LDAP_INJECTION": 2,
+            "HPP": 2,
+            "CRLF_INJECTION": 2,
+            "CSSI": 2,
+            "HTMLI": 2,
+            "NOSQLI": 2,
+            "HARDCODED_SECRETS": 1,
+            "SQLI": 2,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 2,
+            "RACE_CONDITION": 2,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 0.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 0.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 0.6667,
+            "CSRF": 0.6667,
+            "XXE": 0.6667,
+            "LDAP_INJECTION": 0.6667,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 0.6667,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 0.6667,
+            "HARDCODED_SECRETS": 0.3333,
+            "MASS_ASSIGNMENT": 0.6667,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 0.6667,
+            "RACE_CONDITION": 0.6667,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.6909
+          },
+          "ci95": {
+            "det_auroc": [
+              0.8251,
+              0.9534
+            ],
+            "pair_acc": [
+              0.8,
+              0.9636
+            ],
+            "type_acc_forced": [
+              0.4727,
+              0.7273
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SAFE": 38,
+              "XSS": 13,
+              "CMDI": 1,
+              "CODE_INJECTION": 1,
+              "SSTI": 1,
+              "SQLI": 1
+            },
+            "SQLI": {
+              "XSS": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1
+            },
+            "SSRF": {
+              "SAFE": 1
+            },
+            "PROTO_POLLUTION": {
+              "PATH_TRAVERSAL": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            },
+            "SSTI": {
+              "XSS": 1,
+              "SSTI": 2
+            },
+            "CSRF": {
+              "XSS": 1,
+              "CSRF": 2
+            },
+            "XXE": {
+              "XSS": 1,
+              "XXE": 2
+            },
+            "LDAP_INJECTION": {
+              "XSS": 1,
+              "LDAP_INJECTION": 2
+            },
+            "HPP": {
+              "SAFE": 1,
+              "HPP": 2
+            },
+            "CRLF_INJECTION": {
+              "XSS": 1,
+              "CRLF_INJECTION": 2
+            },
+            "CSSI": {
+              "XSS": 1,
+              "CSSI": 2
+            },
+            "HTMLI": {
+              "XSS": 1,
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "XSS": 1,
+              "NOSQLI": 2
+            },
+            "HARDCODED_SECRETS": {
+              "XSS": 1,
+              "HARDCODED_SECRETS": 1,
+              "SQLI": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "XSS": 1,
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "XSS": 1,
+              "WEAK_COOKIE": 2
+            },
+            "INSECURE_JWT": {
+              "XSS": 1,
+              "INSECURE_JWT": 2
+            },
+            "RACE_CONDITION": {
+              "XSS": 1,
+              "RACE_CONDITION": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "ood_hard[insufficient]/shift": {
+          "n": 54,
+          "n_vuln": 27,
+          "n_pairs": 27,
+          "acc": 0.537,
+          "macro_recall": 0.4187,
+          "det_auroc": 0.7874,
+          "det_bal_acc": 0.7222,
+          "det_recall_vuln": 0.8148,
+          "det_recall_safe": 0.6296,
+          "type_acc_forced": 0.4815,
+          "type_mrr": 0.5799,
+          "type_top3": 0.6296,
+          "pair_acc": 0.8148,
+          "mean_logp_correct": -2.21,
+          "pred_dist": {
+            "SAFE": 22,
+            "XSS": 15,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "PATH_TRAVERSAL": 1,
+            "WEAK_CRYPTO": 1,
+            "CSRF": 1,
+            "XXE": 1,
+            "CRLF_INJECTION": 1,
+            "CSSI": 1,
+            "HTMLI": 1,
+            "NOSQLI": 1,
+            "SQLI": 2,
+            "WEAK_COOKIE": 1,
+            "INSECURE_JWT": 1,
+            "INFO_DISCLOSURE": 2
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 0.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 0.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "CSRF": 0.5,
+            "XXE": 0.5,
+            "HPP": 0.0,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 0.5,
+            "HTMLI": 1.0,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 0.0,
+            "WEAK_COOKIE": 0.5,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 0.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.6296
+          },
+          "ci95": {
+            "det_auroc": [
+              0.6557,
+              0.9026
+            ],
+            "pair_acc": [
+              0.6667,
+              0.963
+            ],
+            "type_acc_forced": [
+              0.2963,
+              0.6667
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SAFE": 17,
+              "XSS": 7,
+              "CMDI": 1,
+              "CODE_INJECTION": 1,
+              "SQLI": 1
+            },
+            "SQLI": {
+              "XSS": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1
+            },
+            "SSRF": {
+              "SAFE": 1
+            },
+            "PROTO_POLLUTION": {
+              "PATH_TRAVERSAL": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            },
+            "CSRF": {
+              "XSS": 1,
+              "CSRF": 1
+            },
+            "XXE": {
+              "XSS": 1,
+              "XXE": 1
+            },
+            "HPP": {
+              "SAFE": 1
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 1
+            },
+            "CSSI": {
+              "XSS": 1,
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "HTMLI": 1
+            },
+            "NOSQLI": {
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "SQLI": 1
+            },
+            "WEAK_COOKIE": {
+              "XSS": 1,
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "XSS": 1
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 2
+            }
+          }
+        },
+        "ood_hard[plain]/shift": {
+          "n": 56,
+          "n_vuln": 28,
+          "n_pairs": 28,
+          "acc": 0.7321,
+          "macro_recall": 0.7656,
+          "det_auroc": 0.9745,
+          "det_bal_acc": 0.875,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.75,
+          "type_acc_forced": 0.7143,
+          "type_mrr": 0.7639,
+          "type_top3": 0.7857,
+          "pair_acc": 0.9643,
+          "mean_logp_correct": -1.0898,
+          "pred_dist": {
+            "XSS": 14,
+            "SSTI": 3,
+            "SAFE": 21,
+            "CSRF": 1,
+            "XXE": 1,
+            "LDAP_INJECTION": 2,
+            "HPP": 2,
+            "CRLF_INJECTION": 1,
+            "CSSI": 1,
+            "HTMLI": 1,
+            "NOSQLI": 1,
+            "HARDCODED_SECRETS": 1,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 1,
+            "INSECURE_JWT": 1,
+            "RACE_CONDITION": 2,
+            "INFO_DISCLOSURE": 1
+          },
+          "recall_per_label": {
+            "SSTI": 0.6667,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 0.6667,
+            "HPP": 1.0,
+            "CRLF_INJECTION": 0.5,
+            "CSSI": 1.0,
+            "HTMLI": 0.5,
+            "NOSQLI": 0.5,
+            "HARDCODED_SECRETS": 0.5,
+            "MASS_ASSIGNMENT": 0.6667,
+            "WEAK_COOKIE": 1.0,
+            "INSECURE_JWT": 0.5,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.75
+          },
+          "ci95": {
+            "det_auroc": [
+              0.9286,
+              1.0
+            ],
+            "pair_acc": [
+              0.8571,
+              1.0
+            ],
+            "type_acc_forced": [
+              0.5357,
+              0.8571
+            ]
+          },
+          "confusion": {
+            "SSTI": {
+              "XSS": 1,
+              "SSTI": 2
+            },
+            "SAFE": {
+              "XSS": 6,
+              "SSTI": 1,
+              "SAFE": 21
+            },
+            "CSRF": {
+              "CSRF": 1
+            },
+            "XXE": {
+              "XXE": 1
+            },
+            "LDAP_INJECTION": {
+              "XSS": 1,
+              "LDAP_INJECTION": 2
+            },
+            "HPP": {
+              "HPP": 2
+            },
+            "CRLF_INJECTION": {
+              "XSS": 1,
+              "CRLF_INJECTION": 1
+            },
+            "CSSI": {
+              "CSSI": 1
+            },
+            "HTMLI": {
+              "XSS": 1,
+              "HTMLI": 1
+            },
+            "NOSQLI": {
+              "XSS": 1,
+              "NOSQLI": 1
+            },
+            "HARDCODED_SECRETS": {
+              "XSS": 1,
+              "HARDCODED_SECRETS": 1
+            },
+            "MASS_ASSIGNMENT": {
+              "XSS": 1,
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "WEAK_COOKIE": 1
+            },
+            "INSECURE_JWT": {
+              "XSS": 1,
+              "INSECURE_JWT": 1
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 2
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 1
+            }
+          }
+        },
+        "ood_hard/tta2": {
+          "n": 110,
+          "n_vuln": 55,
+          "n_pairs": 55,
+          "acc": 0.8545,
+          "macro_recall": 0.7394,
+          "det_auroc": 0.9445,
+          "det_bal_acc": 0.9182,
+          "det_recall_vuln": 0.9455,
+          "det_recall_safe": 0.8909,
+          "type_acc_forced": 0.8182,
+          "type_mrr": 0.8744,
+          "type_top3": 0.9273,
+          "pair_acc": 0.9273,
+          "mean_logp_correct": -0.9331,
+          "pred_dist": {
+            "SAFE": 52,
+            "SSTI": 5,
+            "SQLI": 2,
+            "NOSQLI": 5,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "HARDCODED_SECRETS": 8,
+            "SSRF": 1,
+            "PATH_TRAVERSAL": 1,
+            "OPEN_REDIRECT": 1,
+            "WEAK_CRYPTO": 1,
+            "CSRF": 3,
+            "XXE": 3,
+            "LDAP_INJECTION": 3,
+            "HPP": 2,
+            "CRLF_INJECTION": 3,
+            "CSSI": 2,
+            "HTMLI": 2,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_COOKIE": 2,
+            "INSECURE_JWT": 3,
+            "RACE_CONDITION": 3,
+            "INFO_DISCLOSURE": 3
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 0.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SSTI": 1.0,
+            "CSRF": 1.0,
+            "XXE": 1.0,
+            "LDAP_INJECTION": 1.0,
+            "HPP": 0.6667,
+            "CRLF_INJECTION": 1.0,
+            "CSSI": 0.6667,
+            "HTMLI": 0.6667,
+            "NOSQLI": 1.0,
+            "HARDCODED_SECRETS": 1.0,
+            "MASS_ASSIGNMENT": 0.6667,
+            "WEAK_COOKIE": 0.6667,
+            "INSECURE_JWT": 1.0,
+            "RACE_CONDITION": 1.0,
+            "INFO_DISCLOSURE": 1.0,
+            "SAFE": 0.8909
+          },
+          "ci95": {
+            "det_auroc": [
+              0.8856,
+              0.9881
+            ],
+            "pair_acc": [
+              0.8545,
+              0.9818
+            ],
+            "type_acc_forced": [
+              0.7091,
+              0.9091
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "SAFE": 1
+            },
+            "SAFE": {
+              "SSTI": 2,
+              "NOSQLI": 1,
+              "CMDI": 1,
+              "CODE_INJECTION": 1,
+              "SAFE": 49,
+              "SQLI": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "SAFE": 1
+            },
+            "PATH_TRAVERSAL": {
+              "HARDCODED_SECRETS": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "PATH_TRAVERSAL": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "SAFE": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            },
+            "SSTI": {
+              "SSTI": 3
+            },
+            "CSRF": {
+              "CSRF": 3
+            },
+            "XXE": {
+              "XXE": 3
+            },
+            "LDAP_INJECTION": {
+              "LDAP_INJECTION": 3
+            },
+            "HPP": {
+              "HARDCODED_SECRETS": 1,
+              "HPP": 2
+            },
+            "CRLF_INJECTION": {
+              "CRLF_INJECTION": 3
+            },
+            "CSSI": {
+              "HARDCODED_SECRETS": 1,
+              "CSSI": 2
+            },
+            "HTMLI": {
+              "HARDCODED_SECRETS": 1,
+              "HTMLI": 2
+            },
+            "NOSQLI": {
+              "NOSQLI": 3
+            },
+            "HARDCODED_SECRETS": {
+              "HARDCODED_SECRETS": 3
+            },
+            "MASS_ASSIGNMENT": {
+              "NOSQLI": 1,
+              "MASS_ASSIGNMENT": 2
+            },
+            "WEAK_COOKIE": {
+              "HARDCODED_SECRETS": 1,
+              "WEAK_COOKIE": 2
+            },
+            "INSECURE_JWT": {
+              "INSECURE_JWT": 3
+            },
+            "RACE_CONDITION": {
+              "RACE_CONDITION": 3
+            },
+            "INFO_DISCLOSURE": {
+              "INFO_DISCLOSURE": 3
+            }
+          }
+        },
+        "easy/seen": {
+          "n": 20,
+          "n_vuln": 10,
+          "n_pairs": 10,
+          "acc": 0.55,
+          "macro_recall": 0.6727,
+          "det_auroc": 0.62,
+          "det_bal_acc": 0.7,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.4,
+          "type_acc_forced": 0.7,
+          "type_mrr": 0.7674,
+          "type_top3": 0.8,
+          "pair_acc": 0.6,
+          "mean_logp_correct": -3.9901,
+          "pred_dist": {
+            "NOSQLI": 2,
+            "OPEN_REDIRECT": 3,
+            "SQLI": 1,
+            "SAFE": 4,
+            "CMDI": 2,
+            "CODE_INJECTION": 1,
+            "PATH_TRAVERSAL": 2,
+            "SSRF": 2,
+            "MASS_ASSIGNMENT": 1,
+            "CSRF": 1,
+            "WEAK_CRYPTO": 1
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 1.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SAFE": 0.4
+          },
+          "ci95": {
+            "det_auroc": [
+              0.3598,
+              0.84
+            ],
+            "pair_acc": [
+              0.3,
+              0.9
+            ],
+            "type_acc_forced": [
+              0.4,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "NOSQLI": 1
+            },
+            "SAFE": {
+              "OPEN_REDIRECT": 2,
+              "SAFE": 4,
+              "CMDI": 1,
+              "PATH_TRAVERSAL": 1,
+              "SSRF": 1,
+              "CSRF": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "NOSQLI": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "MASS_ASSIGNMENT": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            }
+          }
+        },
+        "easy/shift": {
+          "n": 20,
+          "n_vuln": 10,
+          "n_pairs": 10,
+          "acc": 0.4,
+          "macro_recall": 0.4818,
+          "det_auroc": 0.67,
+          "det_bal_acc": 0.65,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.3,
+          "type_acc_forced": 0.5,
+          "type_mrr": 0.5881,
+          "type_top3": 0.6,
+          "pair_acc": 0.6,
+          "mean_logp_correct": -3.2863,
+          "pred_dist": {
+            "NOSQLI": 1,
+            "OPEN_REDIRECT": 1,
+            "XSS": 6,
+            "CMDI": 2,
+            "CODE_INJECTION": 2,
+            "SSRF": 1,
+            "SAFE": 3,
+            "PROTO_POLLUTION": 1,
+            "MASS_ASSIGNMENT": 2,
+            "WEAK_CRYPTO": 1
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 0.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 1.0,
+            "PATH_TRAVERSAL": 0.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 1.0,
+            "OPEN_REDIRECT": 0.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SAFE": 0.3
+          },
+          "ci95": {
+            "det_auroc": [
+              0.4,
+              0.87
+            ],
+            "pair_acc": [
+              0.3,
+              0.9
+            ],
+            "type_acc_forced": [
+              0.2,
+              0.8
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "NOSQLI": 1
+            },
+            "SAFE": {
+              "OPEN_REDIRECT": 1,
+              "XSS": 3,
+              "CMDI": 1,
+              "CODE_INJECTION": 1,
+              "SAFE": 3,
+              "MASS_ASSIGNMENT": 1
+            },
+            "SQLI": {
+              "XSS": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1
+            },
+            "PATH_TRAVERSAL": {
+              "XSS": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "PROTO_POLLUTION": 1
+            },
+            "OPEN_REDIRECT": {
+              "XSS": 1
+            },
+            "AUTHZ": {
+              "MASS_ASSIGNMENT": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            }
+          }
+        },
+        "easy/tta2": {
+          "n": 20,
+          "n_vuln": 10,
+          "n_pairs": 10,
+          "acc": 0.5,
+          "macro_recall": 0.6636,
+          "det_auroc": 0.64,
+          "det_bal_acc": 0.65,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.3,
+          "type_acc_forced": 0.7,
+          "type_mrr": 0.7664,
+          "type_top3": 0.8,
+          "pair_acc": 0.6,
+          "mean_logp_correct": -3.5158,
+          "pred_dist": {
+            "NOSQLI": 2,
+            "OPEN_REDIRECT": 3,
+            "SQLI": 1,
+            "SAFE": 3,
+            "CMDI": 2,
+            "CODE_INJECTION": 2,
+            "PATH_TRAVERSAL": 2,
+            "SSRF": 1,
+            "SSTI": 1,
+            "MASS_ASSIGNMENT": 1,
+            "CSRF": 1,
+            "WEAK_CRYPTO": 1
+          },
+          "recall_per_label": {
+            "XSS": 0.0,
+            "SQLI": 1.0,
+            "CMDI": 1.0,
+            "CODE_INJECTION": 1.0,
+            "PATH_TRAVERSAL": 1.0,
+            "SSRF": 1.0,
+            "PROTO_POLLUTION": 0.0,
+            "OPEN_REDIRECT": 1.0,
+            "AUTHZ": 0.0,
+            "WEAK_CRYPTO": 1.0,
+            "SAFE": 0.3
+          },
+          "ci95": {
+            "det_auroc": [
+              0.36,
+              0.87
+            ],
+            "pair_acc": [
+              0.3,
+              0.9
+            ],
+            "type_acc_forced": [
+              0.4,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "NOSQLI": 1
+            },
+            "SAFE": {
+              "OPEN_REDIRECT": 2,
+              "SAFE": 3,
+              "CMDI": 1,
+              "CODE_INJECTION": 1,
+              "PATH_TRAVERSAL": 1,
+              "SSTI": 1,
+              "CSRF": 1
+            },
+            "SQLI": {
+              "SQLI": 1
+            },
+            "CMDI": {
+              "CMDI": 1
+            },
+            "CODE_INJECTION": {
+              "CODE_INJECTION": 1
+            },
+            "PATH_TRAVERSAL": {
+              "PATH_TRAVERSAL": 1
+            },
+            "SSRF": {
+              "SSRF": 1
+            },
+            "PROTO_POLLUTION": {
+              "NOSQLI": 1
+            },
+            "OPEN_REDIRECT": {
+              "OPEN_REDIRECT": 1
+            },
+            "AUTHZ": {
+              "MASS_ASSIGNMENT": 1
+            },
+            "WEAK_CRYPTO": {
+              "WEAK_CRYPTO": 1
+            }
+          }
+        },
+        "train/seen": {
+          "n": 20,
+          "n_vuln": 10,
+          "n_pairs": 10,
+          "acc": 0.9,
+          "macro_recall": 0.9333,
+          "det_auroc": 1.0,
+          "det_bal_acc": 0.9,
+          "det_recall_vuln": 1.0,
+          "det_recall_safe": 0.8,
+          "type_acc_forced": 1.0,
+          "type_mrr": 1.0,
+          "type_top3": 1.0,
+          "pair_acc": 1.0,
+          "mean_logp_correct": -0.5756,
+          "pred_dist": {
+            "XSS": 6,
+            "SAFE": 8,
+            "SQLI": 6
+          },
+          "recall_per_label": {
+            "XSS": 1.0,
+            "SQLI": 1.0,
+            "SAFE": 0.8
+          },
+          "ci95": {
+            "det_auroc": [
+              1.0,
+              1.0
+            ],
+            "pair_acc": [
+              1.0,
+              1.0
+            ],
+            "type_acc_forced": [
+              1.0,
+              1.0
+            ]
+          },
+          "confusion": {
+            "XSS": {
+              "XSS": 5
+            },
+            "SAFE": {
+              "SAFE": 8,
+              "XSS": 1,
+              "SQLI": 1
+            },
+            "SQLI": {
+              "SQLI": 5
+            }
+          }
+        }
+      }
+    }
+  ]
+}
