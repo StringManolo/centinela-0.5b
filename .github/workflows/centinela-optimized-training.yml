@@ -1,0 +1,407 @@
+name: Centinela - Optimized Training (rslora+rank32)
+
+# Entrena SOLO con ejemplos nuevos (no vistos en releases previas), desde el adaptador
+# de la ultima release que tenga elegible.txt. Sube LoRA + GGUFs (F32/F16/Q8/Q6/Q4/Q3/Q2)
+# y lanza el workflow de test.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_model:
+        description: 'Base model'
+        required: false
+        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+      model_size:
+        description: 'Tamaño para el nombre de la release'
+        required: false
+        default: '0.5B'
+      techniques:
+        description: 'Etiqueta de técnicas para el nombre de la release'
+        required: false
+        default: 'rslora+rank32'
+      all_train_file:
+        description: 'Fichero completo (se filtra a solo nuevos)'
+        required: false
+        default: 'data/train.jsonl'
+      num_epochs:
+        description: 'Épocas sobre los datos NUEVOS (el volumen escala con los datos)'
+        required: false
+        default: '6'
+      time_budget_min:
+        description: 'Tope de entrenamiento (min). GH job timeout = 360 min.'
+        required: false
+        default: '300'
+      lr:
+        description: 'Learning rate (baseline rslora+rank32 = 1e-4)'
+        required: false
+        default: '1e-4'
+      seed:
+        description: 'Semilla'
+        required: false
+        default: '42'
+      resume_from:
+        description: 'Tag de release, "latest" (ultima con elegible.txt), o vacio (fresh)'
+        required: false
+        default: 'latest'
+      min_new_rows:
+        description: 'Mínimo de filas nuevas para lanzar la run'
+        required: false
+        default: '2'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      nothing_new: ${{ steps.filter.outputs.nothing_new }}
+      diverged: ${{ steps.posttrain.outputs.diverged }}
+      stopped_by_time: ${{ steps.posttrain.outputs.stopped_by_time }}
+      new_rows: ${{ steps.filter.outputs.new_rows }}
+      total_rows: ${{ steps.posttrain.outputs.total_rows }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Compute release tag
+        id: meta
+        run: |
+          DATE=$(date -u +%Y-%m-%d)
+          TAG="centinela-${DATE}-${{ github.run_id }}-${{ inputs.model_size }}-${{ inputs.techniques }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "TAG=${TAG}"
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-centinela-v3
+          restore-keys: |
+            ${{ runner.os }}-hf-centinela-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Resolve resume_from
+        id: resume
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESUME_FROM: ${{ inputs.resume_from }}
+        run: |
+          if [ -z "$RESUME_FROM" ]; then
+            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "fresh start"
+            exit 0
+          fi
+          if [ "$RESUME_FROM" != "latest" ]; then
+            if ! gh release view "$RESUME_FROM" -R "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "::error::release $RESUME_FROM not found"
+              exit 1
+            fi
+            echo "value=$RESUME_FROM" >> "$GITHUB_OUTPUT"
+            echo "explicit: $RESUME_FROM"
+            exit 0
+          fi
+          FOUND=""
+          for tag in $(gh release list -R "${{ github.repository }}" --limit 200 --json tagName --jq '.[].tagName'); do
+            assets=$(gh release view "$tag" -R "${{ github.repository }}" --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if echo "$assets" | grep -qx "elegible.txt" && \
+               echo "$assets" | grep -q "adapter_model.safetensors" && \
+               echo "$assets" | grep -q "trained.json"; then
+              FOUND="$tag"
+              break
+            fi
+          done
+          if [ -z "$FOUND" ]; then
+            echo "value=" >> "$GITHUB_OUTPUT"
+            echo "no eligible release found -> fresh start"
+          else
+            echo "value=$FOUND" >> "$GITHUB_OUTPUT"
+            echo "latest eligible: $FOUND"
+          fi
+
+      - name: Download previous adapter + trained.json
+        if: ${{ steps.resume.outputs.value != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ./prev
+          gh release download "${{ steps.resume.outputs.value }}" \
+            -R "${{ github.repository }}" \
+            -p 'adapter_model.safetensors' \
+            -p 'adapter_config.json' \
+            -p 'trained.json' \
+            -D ./prev --clobber
+          test -f ./prev/adapter_config.json || { echo "::error::no adapter_config.json"; exit 1; }
+          test -f ./prev/trained.json || { echo "::error::no trained.json"; exit 1; }
+          ls -la ./prev
+
+      - name: Filter to NEW examples
+        id: filter
+        run: |
+          set +e
+          python scripts/continue_training.py \
+            --all_train_file "${{ inputs.all_train_file }}" \
+            --trained_file ./prev/trained.json \
+            --out ./train_new.jsonl \
+            --out_hashes ./new_hashes.json \
+            --min_new_rows "${{ inputs.min_new_rows }}"
+          RC=$?
+          set -e
+          if [ "$RC" = "78" ]; then
+            echo "nothing_new=true" >> "$GITHUB_OUTPUT"
+            echo "new_rows=0" >> "$GITHUB_OUTPUT"
+            echo "::warning::No hay ejemplos nuevos suficientes; no se lanza entrenamiento."
+          elif [ "$RC" = "0" ]; then
+            echo "nothing_new=false" >> "$GITHUB_OUTPUT"
+            NEW=$(python -c "import json; print(json.load(open('new_hashes.json'))['count'])")
+            echo "new_rows=$NEW" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::continue_training.py failed with $RC"
+            exit 1
+          fi
+
+      - name: Train (rslora+rank32, only NEW data)
+        if: ${{ steps.filter.outputs.nothing_new != 'true' }}
+        env:
+          TOKENIZERS_PARALLELISM: "false"
+          OMP_NUM_THREADS: "4"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          ARGS=(
+            --base_model "${{ inputs.base_model }}"
+            --train_file ./train_new.jsonl
+            --test_file data/test.jsonl
+            --output_dir ./lora_adapter
+            --num_epochs "${{ inputs.num_epochs }}"
+            --time_budget_min "${{ inputs.time_budget_min }}"
+            --lr "${{ inputs.lr }}"
+            --seed "${{ inputs.seed }}"
+            --train_templates 1
+            --rslora
+            --lora_r 32
+            --lora_targets q_proj,v_proj
+            --lora_dropout 0.05
+            --lr_scheduler constant_with_warmup
+            --grad_accum 4
+            --train_probe_n 20
+            --eval_every 1000000
+          )
+          if [ -n "${{ steps.resume.outputs.value }}" ]; then
+            ARGS+=(--resume_adapter ./prev)
+          fi
+          python scripts/run_pipeline.py "${ARGS[@]}"
+
+      - name: Post-training: merge trained.json + write elegible.txt
+        id: posttrain
+        if: ${{ steps.filter.outputs.nothing_new != 'true' }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          # Merge hashes
+          python - <<'PY'
+          import json
+          prev = set()
+          try:
+              with open("./prev/trained.json") as f:
+                  prev = set(json.load(f).get("hashes", []))
+          except FileNotFoundError:
+              pass
+          with open("./new_hashes.json") as f:
+              new = set(json.load(f)["hashes"])
+          merged = sorted(prev | new)
+          with open("./trained.json", "w") as f:
+              json.dump({"hashes": merged, "count": len(merged)}, f)
+          print(f"prev={len(prev)} new={len(new)} total={len(merged)}")
+          PY
+          TOTAL=$(python -c "import json; print(json.load(open('trained.json'))['count'])")
+          echo "total_rows=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          # Extract flags from metrics
+          DIVERGED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(m['config'].get('diverged', False))")
+          STOPPED=$(python -c "import json; m=json.load(open('./lora_adapter/metrics.json')); print(bool(m['config'].get('stopped_by_time_budget')))")
+          echo "diverged=$DIVERGED" >> "$GITHUB_OUTPUT"
+          echo "stopped_by_time=$STOPPED" >> "$GITHUB_OUTPUT"
+
+          if [ "$DIVERGED" = "True" ]; then
+            echo "::warning::Training diverged; elegible.txt will NOT be created."
+            exit 0
+          fi
+
+          cat > elegible.txt <<EOF
+          tag: $TAG
+          run_id: ${{ github.run_id }}
+          timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          base_model: ${{ inputs.base_model }}
+          techniques: rslora+rank32
+          num_epochs: ${{ inputs.num_epochs }}
+          time_budget_min: ${{ inputs.time_budget_min }}
+          resumed_from: ${{ steps.resume.outputs.value }}
+          new_rows_this_run: ${{ steps.filter.outputs.new_rows }}
+          total_rows_trained: $TOTAL
+          diverged: false
+          stopped_by_time_budget: $STOPPED
+          EOF
+          cat elegible.txt
+
+      - name: Upload LoRA adapter + registry
+        if: ${{ steps.filter.outputs.nothing_new != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-lora-${{ steps.meta.outputs.tag }}
+          path: |
+            lora_adapter/adapter_model.safetensors
+            lora_adapter/adapter_config.json
+            lora_adapter/metrics.json
+            lora_adapter/curve.csv
+            lora_adapter/scores_final.jsonl
+            trained.json
+            elegible.txt
+          if-no-files-found: error
+
+  quantize:
+    needs: train
+    if: ${{ needs.train.outputs.nothing_new != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: centinela-lora-${{ needs.train.outputs.tag }}
+          path: ./lora_adapter
+      - name: Merge LoRA into base
+        run: |
+          python - <<'PY'
+          import torch
+          from peft import PeftModel
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+          base = "${{ inputs.base_model }}"
+          model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.float32, trust_remote_code=True)
+          model = PeftModel.from_pretrained(model, "./lora_adapter", is_trainable=False)
+          merged = model.merge_and_unload()
+          merged.save_pretrained("./merged", safe_serialization=True)
+          AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained("./merged")
+          print("merged OK")
+          PY
+      - name: Build llama.cpp (convert + quantize)
+        run: |
+          git clone --depth 1 https://github.com/ggerganov/llama.cpp ./llama.cpp
+          cd ./llama.cpp
+          pip install -r requirements.txt
+          cmake -B build -DLLAMA_CURL=OFF
+          cmake --build build --config Release -j4 --target llama-quantize
+      - name: Convert to F32 and F16
+        run: |
+          python ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F32.gguf --outtype f32
+          python ./llama.cpp/convert_hf_to_gguf.py ./merged --outfile ./centinela-F16.gguf --outtype f16
+      - name: Quantize (Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K)
+        run: |
+          for Q in Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+            echo "== $Q =="
+            ./llama.cpp/build/bin/llama-quantize ./centinela-F16.gguf "./centinela-${Q}.gguf" "$Q"
+          done
+      - name: Rename with full tag
+        run: |
+          TAG="${{ needs.train.outputs.tag }}"
+          for q in F32 F16 Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+            mv "centinela-${q}.gguf" "${TAG}-${q}.gguf"
+          done
+          ls -la *.gguf
+      - name: Upload GGUFs
+        uses: actions/upload-artifact@v4
+        with:
+          name: centinela-gguf-${{ needs.train.outputs.tag }}
+          path: '*.gguf'
+          if-no-files-found: error
+
+  release:
+    needs: [train, quantize]
+    if: ${{ needs.train.outputs.nothing_new != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: centinela-lora-${{ needs.train.outputs.tag }}
+          path: ./lora_adapter
+      - uses: actions/download-artifact@v4
+        with:
+          name: centinela-gguf-${{ needs.train.outputs.tag }}
+          path: ./gguf
+      - name: Rename assets with tag
+        run: |
+          TAG="${{ needs.train.outputs.tag }}"
+          mkdir -p ./release
+          for q in F32 F16 Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+            cp "./gguf/${TAG}-${q}.gguf" "./release/${TAG}-${q}.gguf"
+          done
+          cp ./lora_adapter/adapter_model.safetensors "./release/${TAG}-lora.safetensors"
+          cp ./lora_adapter/adapter_config.json    "./release/${TAG}-adapter_config.json"
+          cp ./lora_adapter/metrics.json            "./release/${TAG}-metrics.json"
+          cp ./lora_adapter/trained.json            "./release/trained.json"
+          if [ -f ./lora_adapter/elegible.txt ]; then
+            cp ./lora_adapter/elegible.txt          "./release/elegible.txt"
+          fi
+          ls -la ./release
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.train.outputs.tag }}
+          name: ${{ needs.train.outputs.tag }}
+          body: |
+            Run `${{ github.run_id }}` — `${{ inputs.base_model }}`
+            - Techniques: `rslora+rank32` (r=32, rsLoRA, q_proj+v_proj)
+            - Epochs on new data: `${{ inputs.num_epochs }}` (time budget `${{ inputs.time_budget_min }}` min)
+            - New rows this run: `${{ needs.train.outputs.new_rows }}`
+            - Total rows trained (cumulative): `${{ needs.train.outputs.total_rows }}`
+            - Resumed from: `${{ steps.resume.outputs.value || 'fresh start' }}`
+            - Diverged: `${{ needs.train.outputs.diverged }}` — Stopped by time: `${{ needs.train.outputs.stopped_by_time }}`
+            - Eligible to continue: `${{ needs.train.outputs.diverged == 'False' && 'YES' || 'NO' }}`
+            - Quantizations: F32, F16, Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K
+            - LoRA tensors: `${{ needs.train.outputs.tag }}-lora.safetensors`
+          files: |
+            ./release/*.gguf
+            ./release/*-lora.safetensors
+            ./release/*-adapter_config.json
+            ./release/*-metrics.json
+            ./release/trained.json
+            ./release/elegible.txt
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trigger-test:
+    needs: [train, release]
+    if: ${{ needs.train.outputs.nothing_new != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch test workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run centinela-test.yml \
+            -R "${{ github.repository }}" \
+            -f release_tag="${{ needs.train.outputs.tag }}" \
+            -f base_model="${{ inputs.base_model }}"

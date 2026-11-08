@@ -37,6 +37,10 @@ v4 changes (found while analysing the first full runs):
   * Detection metrics use the structural `role` of a snippet (vuln/safe), not its possibly-permuted label.
   * Step 0 and the final eval always use the FULL test sets; --eval_pairs_per_set only thins mid-run evals.
   * Results are also split by `subtype` (plain vs insufficient mitigation) inside each test set.
+
+v5 changes (continuous-training support):
+  * --resume_adapter loads a previous PEFT adapter folder (weights only) before training/eval.
+  * --eval_only skips the training loop (requires --resume_adapter); the final eval always runs.
 """
 import argparse
 import copy
@@ -513,7 +517,10 @@ def summary_markdown(cfg, step0, final):
             a = step0.get(k, {}).get(m) if step0 else None
             b = final[k].get(m)
             ci = final[k].get("ci95", {}).get(m)
-            cells.append(f"{a} -> {b}" + (f" {ci}" if ci else ""))
+            if a is None:
+                cells.append(f"{b}" + (f" {ci}" if ci else ""))
+            else:
+                cells.append(f"{a} -> {b}" + (f" {ci}" if ci else ""))
         lines.append(f"| {k} | " + " | ".join(cells) + " |")
     sb = cfg.get("shortcut_baselines") or {}
     if sb:
@@ -572,9 +579,16 @@ def parse_args(argv=None):
     ap.add_argument("--max_len", type=int, default=768)
     ap.add_argument("--permute_labels", action="store_true", help="null control: shuffle train labels")
     ap.add_argument("--skip_step0", action="store_true")
+    # v5: continuous training
+    ap.add_argument("--resume_adapter", default="",
+                    help="path to a previous PEFT adapter folder (loads adapter weights before training/eval)")
+    ap.add_argument("--eval_only", action="store_true",
+                    help="skip training, only run the final evaluation (requires --resume_adapter)")
     args = ap.parse_args(argv)
     if not 1 <= args.train_templates <= len(TRAIN_TEMPLATES):
         ap.error(f"--train_templates must be in 1..{len(TRAIN_TEMPLATES)}")
+    if args.eval_only and not args.resume_adapter:
+        ap.error("--eval_only requires --resume_adapter")
     return args
 
 
@@ -684,7 +698,14 @@ def main():
         peft_cfg = LoraConfig(task_type=TaskType.CAUSAL_LM, r=args.lora_r, lora_alpha=2 * args.lora_r,
                               lora_dropout=args.lora_dropout, target_modules=targets, bias="none",
                               use_rslora=args.rslora, use_dora=args.dora, **extra)
-    model = get_peft_model(model, peft_cfg)
+    if args.resume_adapter:
+        if not os.path.isdir(args.resume_adapter):
+            sys.exit(f"--resume_adapter not found: {args.resume_adapter}")
+        from peft import PeftModel
+        print(f"  resuming adapter from {args.resume_adapter}")
+        model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
+    else:
+        model = get_peft_model(model, peft_cfg)
     model.print_trainable_parameters()
     optimizers = (None, None)
     if args.lora_plus_ratio > 0:
@@ -705,7 +726,7 @@ def main():
     curve, scores_step0 = [], []
 
     # 4. step-0 evaluation (LoRA B=0 -> identical to the base model)
-    if not args.skip_step0:
+    if not args.skip_step0 and not args.eval_only:
         print("[4/6] Step-0 evaluation (base model)")
         t0 = time.time()
         m0, scores_step0 = eval_point(model, enc, test_full, probe_rows, shift, args.train_templates, mode,
@@ -786,12 +807,18 @@ def main():
     trainer = TrainerCls(model=model, args=targs, train_dataset=ListDataset(feats),
                       data_collator=DataCollatorForSeq2Seq(tok, padding=True, label_pad_token_id=-100),
                       callbacks=[EvalCallback()], optimizers=optimizers)
-    t0 = time.time()
-    result = trainer.train()
-    timings["train_s"] = round(time.time() - t0, 2)
-    last_hist = [h["loss"] for h in trainer.state.log_history if "loss" in h]
-    print(f"  trained in {timings['train_s']}s, final loss (last 5 logs) "
-          f"{np.mean(last_hist[-5:]) if last_hist else None}")
+
+    if args.eval_only:
+        print("[5/6] Eval only: skipping training loop")
+        result, last_hist = None, []
+        timings["train_s"] = 0
+    else:
+        t0 = time.time()
+        result = trainer.train()
+        timings["train_s"] = round(time.time() - t0, 2)
+        last_hist = [h["loss"] for h in trainer.state.log_history if "loss" in h]
+        print(f"  trained in {timings['train_s']}s, final loss (last 5 logs) "
+              f"{np.mean(last_hist[-5:]) if last_hist else None}")
     diverged = bool(last_hist) and (any(not math.isfinite(x) for x in last_hist) or last_hist[-1] > 25)
     if diverged:
         print("  WARNING: training diverged (non-finite or exploding loss); the evaluation below is of a broken model")
@@ -802,7 +829,7 @@ def main():
     mf, scores_final = eval_point(model, enc, test_full, probe_rows, shift, args.train_templates, mode,
                                   ci=True, keep_scores=True)
     timings["eval_final_s"] = round(time.time() - t0, 2)
-    final_step = trainer.state.global_step
+    final_step = trainer.state.global_step if not args.eval_only else 0
     curve.append({"step": final_step, "epoch": round(final_step / steps_per_epoch, 2),
                   "train_loss": r4(float(np.mean(last_hist[-steps_per_epoch:]))) if last_hist else None,
                   "metrics": mf})
@@ -819,7 +846,7 @@ def main():
                score_mode_resolved=mode, label_tokens=enc.label_tokens,
                stopped_by_time_budget=budget_stop.get("stopped_at_step"), diverged=diverged,
                final_train_loss=(r4(float(np.mean(last_hist[-5:]))) if last_hist else None),
-               train_runtime=result.metrics.get("train_runtime"))
+               train_runtime=(result.metrics.get("train_runtime") if result else None))
     with open(os.path.join(args.output_dir, "metrics.json"), "w", encoding="utf-8") as f:
         json.dump({"config": cfg, "timings": timings, "curve": curve}, f, indent=2, ensure_ascii=False)
     write_curve_csv(os.path.join(args.output_dir, "curve.csv"), curve)
