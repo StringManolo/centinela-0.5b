@@ -48,7 +48,7 @@ jobs:
           cp "./release/${TAG}-lora.safetensors"    ./prev/adapter_model.safetensors
           cp "./release/${TAG}-adapter_config.json" ./prev/adapter_config.json
 
-      - name: Eval-only (real metrics: TYPE, TYPE_SHIFT, DET)
+      - name: "Eval-only (real metrics: TYPE, TYPE_SHIFT, DET)"
         env:
           TOKENIZERS_PARALLELISM: "false"
           OMP_NUM_THREADS: "4"

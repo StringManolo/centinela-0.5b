@@ -247,7 +247,7 @@ jobs:
           fi
           python3 scripts/run_pipeline.py "${ARGS[@]}"
 
-      - name: Post-training: merge trained.json + write elegible.txt
+      - name: "Post-training: merge trained.json + write elegible.txt"
         id: posttrain
         if: ${{ steps.filter.outputs.nothing_new != 'true' }}
         run: |
