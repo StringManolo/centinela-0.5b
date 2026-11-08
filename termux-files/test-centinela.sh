@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
 set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LABELS_JSON="${CENTINELA_LABELS_JSON:-$SCRIPT_DIR/labels.json}"
+SERVER="${CENTINELA_SERVER:-http://127.0.0.1:8192}"
+
+if [ ! -f "$LABELS_JSON" ]; then
+    echo "ERROR: labels.json not found at $LABELS_JSON" >&2
+    exit 1
+fi
+
+# Extraer labels como CSV
+LABELS_CSV=$(python3 -c "import json,sys; print(', '.join(json.load(open(sys.argv[1]))['labels']))" "$LABELS_JSON")
+LABELS_COUNT=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['labels']))" "$LABELS_JSON")
+
 DEBUG=false
 for arg in "$@"; do
   case "$arg" in
@@ -8,9 +22,8 @@ for arg in "$@"; do
   esac
 done
 
-SERVER="http://127.0.0.1:8192"
-
-LABELS_CSV="XSS, SQLI, CMDI, CODE_INJECTION, PATH_TRAVERSAL, SSRF, PROTO_POLLUTION, OPEN_REDIRECT, AUTHZ, WEAK_CRYPTO, SSTI, CSRF, XXE, LDAP_INJECTION, HPP, CRLF_INJECTION, CSSI, HTMLI, NOSQLI, HARDCODED_SECRETS, MASS_ASSIGNMENT, WEAK_COOKIE, INSECURE_JWT, RACE_CONDITION, INFO_DISCLOSURE, SAFE"
+FAILED=0
+PASSED=0
 
 run_test() {
   local name="$1" code="$2" expect="$3"
@@ -66,41 +79,43 @@ except Exception as e:
 ")
   echo "OUTPUT:  $OUTPUT"
 
-  if echo "$OUTPUT" | grep -qi "$expect"; then
+  # Match exacto de palabra (no substring: NOSQLI ≠ SQLI)
+  if echo "$OUTPUT" | grep -qiw "$expect"; then
     echo "✅ OK"
+    PASSED=$((PASSED + 1))
   else
     echo "❌ FALLO (esperaba $expect)"
+    FAILED=$((FAILED + 1))
   fi
   echo
 }
 
-# Ejemplo 1: SQLI clásico (concatenación)
 SQLI_CODE='app.get("/user", (req, res) => {
   const sql = "SELECT * FROM users WHERE id = " + req.query.id;
   db.query(sql, (err, rows) => res.json(rows));
 });'
 
-# Ejemplo 2: SQLI con template literal
 SQLI_CODE2='app.post("/login", async (req, res) => {
-  const { email, pw } = req.body;
+  const { email } = req.body;
   const rows = await db.query(`SELECT * FROM users WHERE email = '"'"'${email}'"'"'`);
   res.json(rows);
 });'
 
-# Ejemplo 3: XSS
 XSS_CODE='function showName(name) {
   document.getElementById("welcome").innerHTML = "Hello, " + name;
 }'
 
-# Ejemplo 4: SAFE de verdad
 SAFE_CODE='function add(a, b) {
   return a + b;
 }'
 
-echo "=== Test Centinela — server: $SERVER ==="
+echo "=== Test Centinela — server: $SERVER, labels: $LABELS_COUNT ==="
 echo
 
 run_test "SQLI concat" "$SQLI_CODE"  "SQLI"
 run_test "SQLI template" "$SQLI_CODE2" "SQLI"
 run_test "XSS innerHTML" "$XSS_CODE"  "XSS"
 run_test "SAFE (suma)" "$SAFE_CODE"  "SAFE"
+
+echo "=== Resumen: $PASSED passed, $FAILED failed ==="
+[ "$FAILED" -eq 0 ] || exit 1

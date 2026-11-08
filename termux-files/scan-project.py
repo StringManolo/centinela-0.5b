@@ -7,20 +7,34 @@ Uso:
     python3 scan-project.py /ruta/al/repo --ext .php,.py,.js
     python3 scan-project.py /ruta/al/repo --top 50 --min-score 0.7
 """
-import argparse, json, math, sys, time, urllib.request, urllib.error
+import argparse, json, math, os, sys, time, urllib.request, urllib.error
 from pathlib import Path
 from collections import Counter, defaultdict
 
-SERVER_DEFAULT = "http://127.0.0.1:8192"
-LABELS = ("XSS SQLI CMDI CODE_INJECTION PATH_TRAVERSAL SSRF PROTO_POLLUTION "
-          "OPEN_REDIRECT AUTHZ WEAK_CRYPTO SSTI CSRF XXE LDAP_INJECTION HPP "
-          "CRLF_INJECTION CSSI HTMLI NOSQLI HARDCODED_SECRETS MASS_ASSIGNMENT "
-          "WEAK_COOKIE INSECURE_JWT RACE_CONDITION INFO_DISCLOSURE SAFE").split()
+SCRIPT_DIR = Path(__file__).parent
+
+
+def _labels_path():
+    return Path(os.environ.get("CENTINELA_LABELS_JSON") or SCRIPT_DIR / "labels.json")
+
+
+def load_labels():
+    p = _labels_path()
+    if not p.is_file():
+        sys.exit(f"ERROR: labels.json not found at {p}")
+    with open(p) as f:
+        return json.load(f)["labels"]
+
+
+LABELS = load_labels()
+LABELS_SET = set(LABELS)
+
+SERVER_DEFAULT = os.environ.get("CENTINELA_SERVER", "http://127.0.0.1:8192")
 
 SUPPORTED_EXT = {
-    ".js", ".mjs", ".cjs", ".jsx", ".tsx", ".ts",  # training domain (mejor precisión)
-    ".php", ".py", ".rb", ".java", ".go", ".rs",  # web (extrapolación)
-    ".c", ".cpp", ".cc", ".h", ".hpp",            # C/C++
+    ".js", ".mjs", ".cjs", ".jsx", ".tsx", ".ts",           # training domain (best)
+    ".php", ".py", ".rb", ".java", ".go", ".rs",           # web
+    ".c", ".cpp", ".cc", ".h", ".hpp", ".cs",              # C/C++/C# (memory bugs)
 }
 SKIP_DIRS = {
     "node_modules", ".git", "dist", "build", "vendor", "venv", ".venv",
@@ -80,7 +94,7 @@ def classify(server, code):
     label = "UNKNOWN"
     for tok in raw.replace(",", " ").replace(".", " ").split():
         tok = tok.strip("`'\"()[]{}:;")
-        if tok in LABELS:
+        if tok in LABELS_SET:
             label = tok
             break
 
@@ -114,7 +128,8 @@ def main():
 
     target = Path(args.target)
     if not target.exists():
-        print(f"ERROR: {target} no existe", file=sys.stderr); sys.exit(1)
+        print(f"ERROR: {target} no existe", file=sys.stderr)
+        sys.exit(1)
 
     exts = {("." + e.strip(". ")) for e in args.ext.split(",")} if args.ext else SUPPORTED_EXT
 
@@ -129,7 +144,7 @@ def main():
         sys.exit(1)
 
     print(f"Escaneando {len(files)} ficheros en {target}")
-    print(f"Server: {args.server}")
+    print(f"Server: {args.server}  |  Labels: {len(LABELS)}")
     print(f"Chunk: {MAX_CHUNK_LINES} líneas, overlap {OVERLAP_LINES}")
     print()
 
@@ -175,7 +190,7 @@ def main():
     print(f"\n{'='*75}")
     print(f"  TOP {args.top} CHUNKS MÁS SOSPECHOSOS")
     print(f"{'='*75}")
-    print(f"{'Score':6s} {'Label':20s} {'Fichero':32s} {'Línea':6s}")
+    print(f"{'Score':6s} {'Label':24s} {'Fichero':32s} {'Línea':6s}")
     print("-" * 75)
     shown = 0
     for r in all_results:
@@ -186,7 +201,7 @@ def main():
         fname = Path(r["file"]).name
         if len(fname) > 30:
             fname = "..." + fname[-27:]
-        print(f"{r['score']:6.2f} {r['label']:20s} {fname:32s} L{r['line']:<5d}")
+        print(f"{r['score']:6.2f} {r['label']:24s} {fname:32s} L{r['line']:<5d}")
         shown += 1
         if shown >= args.top:
             break
@@ -198,7 +213,7 @@ def main():
     print(f"{'='*75}")
     for label, count in stats["labels"].most_common():
         pct = 100 * count / max(1, stats["total_chunks"])
-        print(f"  {label:22s} {count:5d} ({pct:5.1f}%)")
+        print(f"  {label:24s} {count:5d} ({pct:5.1f}%)")
 
     by_file = defaultdict(int)
     for r in all_results:

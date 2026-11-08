@@ -5,15 +5,28 @@ Centinela batch classifier. Uso:
     python3 classify.py directorio/         # .js recursivo
     cat fichero.js | python3 classify.py -  # stdin
 """
-import json, sys, urllib.request, urllib.error
+import json, os, sys, urllib.request, urllib.error
 from pathlib import Path
 
-SERVER = "http://127.0.0.1:8192"
-LABELS = ("XSS SQLI CMDI CODE_INJECTION PATH_TRAVERSAL SSRF PROTO_POLLUTION "
-          "OPEN_REDIRECT AUTHZ WEAK_CRYPTO SSTI CSRF XXE LDAP_INJECTION HPP "
-          "CRLF_INJECTION CSSI HTMLI NOSQLI HARDCODED_SECRETS MASS_ASSIGNMENT "
-          "WEAK_COOKIE INSECURE_JWT RACE_CONDITION INFO_DISCLOSURE SAFE").split()
+SCRIPT_DIR = Path(__file__).parent
+SERVER = os.environ.get("CENTINELA_SERVER", "http://127.0.0.1:8192")
+
+
+def _labels_path():
+    return Path(os.environ.get("CENTINELA_LABELS_JSON") or SCRIPT_DIR / "labels.json")
+
+
+def load_labels():
+    p = _labels_path()
+    if not p.is_file():
+        sys.exit(f"ERROR: labels.json not found at {p}")
+    with open(p) as f:
+        return json.load(f)["labels"]
+
+
+LABELS = load_labels()
 LABEL_LIST = ", ".join(LABELS)
+LABELS_SET = set(LABELS)
 
 PROMPT = """Analyze the following JavaScript code for security vulnerabilities.
 If it is vulnerable, answer with the vulnerability type; if it is not, answer SAFE.
@@ -45,7 +58,7 @@ def classify(code):
     prompt = PROMPT.format(labels=LABEL_LIST, code=code)
     body = json.dumps({
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 4,
+        "max_tokens": 8,
         "temperature": 0,
         "stop": ["\n", "<|im_end|>"],
     }).encode()
@@ -59,7 +72,7 @@ def classify(code):
     out = resp["choices"][0]["message"]["content"].strip()
     for tok in out.replace(",", " ").replace(".", " ").split():
         tok = tok.strip("`'\"()[]{}:;")
-        if tok in LABELS:
+        if tok in LABELS_SET:
             return tok
     return f"UNKNOWN({out!r})"
 
@@ -71,8 +84,7 @@ def process_file(path):
         return [(path, f"READ_ERROR({e})", 0)]
     results = []
     for idx, ch in enumerate(chunk(code)):
-        label = classify(ch)
-        results.append((path, label, idx))
+        results.append((path, classify(ch), idx))
     return results
 
 
@@ -85,7 +97,7 @@ def main():
     if target == "-":
         code = sys.stdin.read()
         for idx, ch in enumerate(chunk(code)):
-            print(f"{classify(ch):20s}  stdin[chunk {idx}]")
+            print(f"{classify(ch):25s}  stdin[chunk {idx}]")
         return
 
     p = Path(target)
@@ -94,12 +106,13 @@ def main():
     elif p.is_dir():
         files = sorted(p.rglob("*.js"))
     else:
-        print(f"no existe: {target}", file=sys.stderr); sys.exit(1)
+        print(f"no existe: {target}", file=sys.stderr)
+        sys.exit(1)
 
     for f in files:
         for (path, label, idx) in process_file(f):
             suffix = f" [chunk {idx}]" if idx > 0 else ""
-            print(f"{label:20s}  {path}{suffix}")
+            print(f"{label:25s}  {path}{suffix}")
 
 
 if __name__ == "__main__":

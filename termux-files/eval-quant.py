@@ -3,9 +3,26 @@
 Evalúa un llama-server corriendo (Centinela) sobre un set fijo.
 Guarda resultados en eval-{tag}.json para comparar.
 """
-import argparse, json, sys, time, urllib.request, urllib.error
+import argparse, json, os, sys, time, urllib.request, urllib.error
+from pathlib import Path
 
-LABELS = "XSS SQLI CMDI CODE_INJECTION PATH_TRAVERSAL SSRF PROTO_POLLUTION OPEN_REDIRECT AUTHZ WEAK_CRYPTO SSTI CSRF XXE LDAP_INJECTION HPP CRLF_INJECTION CSSI HTMLI NOSQLI HARDCODED_SECRETS MASS_ASSIGNMENT WEAK_COOKIE INSECURE_JWT RACE_CONDITION INFO_DISCLOSURE SAFE".split()
+SCRIPT_DIR = Path(__file__).parent
+
+
+def _labels_path():
+    return Path(os.environ.get("CENTINELA_LABELS_JSON") or SCRIPT_DIR / "labels.json")
+
+
+def load_labels():
+    p = _labels_path()
+    if not p.is_file():
+        sys.exit(f"ERROR: labels.json not found at {p}")
+    with open(p) as f:
+        return json.load(f)["labels"]
+
+
+LABELS = load_labels()
+LABELS_SET = set(LABELS)
 
 PROMPT = """Analyze the following JavaScript code for security vulnerabilities.
 If it is vulnerable, answer with the vulnerability type; if it is not, answer SAFE.
@@ -16,7 +33,6 @@ Code:
 {code}
 ```"""
 
-# Test cases escritos a mano (los que ya fallaban en Q4)
 HAND_CRAFTED = [
     {"id": "SQLI_concat", "expected": "SQLI", "code": 'app.get("/user", (req, res) => {\n  const sql = "SELECT * FROM users WHERE id = " + req.query.id;\n  db.query(sql, (err, rows) => res.json(rows));\n});'},
     {"id": "SQLI_template", "expected": "SQLI", "code": 'app.post("/login", async (req, res) => {\n  const { email } = req.body;\n  const rows = await db.query(`SELECT * FROM users WHERE email = \'${email}\'`);\n  res.json(rows);\n});'},
@@ -24,7 +40,6 @@ HAND_CRAFTED = [
     {"id": "SAFE_trivial", "expected": "SAFE", "code": 'function add(a, b) {\n  return a + b;\n}'},
 ]
 
-# Fallback si no hay --samples: 12 ejemplos "in-distribution" (con comentarios, estilo training)
 DEFAULT_SAMPLES = [
     {"id": "XSS_01", "label": "XSS", "code": '// returns JSON\napp.get("/search", (req, res) => {\n  res.send("<h2>Results for " + req.query.q + "</h2>");\n});\n// covered by the integration tests'},
     {"id": "SQLI_01", "label": "SQLI", "code": '// reviewed in the last sprint\napp.get("/users", (req, res) => {\n  const q = "SELECT id, email FROM users WHERE name = \'" + req.query.name + "\'";\n  connection.query(q, (err, rows) => res.json(rows));\n});\n// see ticket #4821 for context'},
@@ -50,14 +65,14 @@ def classify(url, code):
     req = urllib.request.Request(f"{url}/v1/chat/completions", data=body,
                                  headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with urllib.request.urlopen(req, timeout=180) as r:
             resp = json.load(r)
     except Exception as e:
         return f"ERROR({e})"
     out = resp["choices"][0]["message"]["content"].strip()
     for tok in out.replace(",", " ").replace(".", " ").split():
         tok = tok.strip("`'\"()[]{}:;")
-        if tok in LABELS:
+        if tok in LABELS_SET:
             return tok
     return f"UNKNOWN({out!r})"
 
@@ -74,7 +89,7 @@ def load_samples(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--url", default="http://127.0.0.1:8192")
+    ap.add_argument("--url", default=os.environ.get("CENTINELA_SERVER", "http://127.0.0.1:8192"))
     ap.add_argument("--tag", required=True)
     ap.add_argument("--samples", default="")
     ap.add_argument("--out", default="")
@@ -82,28 +97,26 @@ def main():
 
     out = args.out or f"eval-{args.tag}.json"
     samples = load_samples(args.samples)
-    results = {"tag": args.tag, "url": args.url,
-               "hand_crafted": [], "test_samples": [],
-               "n_samples": len(samples)}
+    results = {"tag": args.tag, "url": args.url, "labels_count": len(LABELS),
+               "hand_crafted": [], "test_samples": [], "n_samples": len(samples)}
 
     def run_case(tc, expected_key="expected"):
         t0 = time.time()
         pred = classify(args.url, tc["code"])
         dt = time.time() - t0
-        expected = tc[expected_key]
-        return {"id": tc["id"], "expected": expected, "predicted": pred,
-                "ok": pred == expected, "seconds": round(dt, 2)}
+        return {"id": tc["id"], "expected": tc[expected_key], "predicted": pred,
+                "ok": pred == tc[expected_key], "seconds": round(dt, 2)}
 
     print(f"=== {args.tag} — hand-crafted ({len(HAND_CRAFTED)} tests) ===", flush=True)
+    print("(el primer request tarda ~10-15s en CPU móvil, paciencia)", flush=True)
     for tc in HAND_CRAFTED:
         r = run_case(tc)
         results["hand_crafted"].append(r)
         mark = "✅" if r["ok"] else "❌"
-        print(f"{mark} {r['id']:18s} exp={r['expected']:20s} got={r['predicted']:20s} ({r['seconds']:.1f}s)", flush=True)
+        print(f"{mark} {r['id']:18s} exp={r['expected']:22s} got={r['predicted']:22s} ({r['seconds']:.1f}s)", flush=True)
 
     print(f"\n=== {args.tag} — test samples ({len(samples)} tests) ===", flush=True)
-    per_class_ok = {}
-    per_class_total = {}
+    per_class_ok, per_class_total = {}, {}
     for s in samples:
         r = run_case(s, "label")
         results["test_samples"].append(r)
@@ -111,7 +124,7 @@ def main():
         if r["ok"]:
             per_class_ok[r["expected"]] = per_class_ok.get(r["expected"], 0) + 1
         mark = "✅" if r["ok"] else "❌"
-        print(f"{mark} {r['id']:14s} exp={r['expected']:20s} got={r['predicted']:20s}", flush=True)
+        print(f"{mark} {r['id']:22s} exp={r['expected']:22s} got={r['predicted']:22s}", flush=True)
 
     hc_ok = sum(1 for r in results["hand_crafted"] if r["ok"])
     hc_total = len(results["hand_crafted"])
