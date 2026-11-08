@@ -62,8 +62,14 @@ except ImportError:  # pragma: no cover
     torch = None
 
 VULN_TYPES = [
+    # original 10
     "XSS", "SQLI", "CMDI", "CODE_INJECTION", "PATH_TRAVERSAL",
     "SSRF", "PROTO_POLLUTION", "OPEN_REDIRECT", "AUTHZ", "WEAK_CRYPTO",
+    # 15 new code-detectable classes
+    "SSTI", "CSRF", "XXE", "LDAP_INJECTION", "HPP",
+    "CRLF_INJECTION", "CSSI", "HTMLI", "NOSQLI",
+    "HARDCODED_SECRETS", "MASS_ASSIGNMENT", "WEAK_COOKIE",
+    "INSECURE_JWT", "RACE_CONDITION", "INFO_DISCLOSURE",
 ]
 SAFE = "SAFE"
 LABELS = VULN_TYPES + [SAFE]
@@ -655,7 +661,7 @@ def main():
     enc = Encoder(tok)
     mode = args.score_mode
     if mode == "auto":
-        mode = "first" if enc.first_unique else "sum"
+        mode = "first" if enc.first_unique else "mean"  #"sum"
     elif mode == "first" and not enc.first_unique:
         sys.exit("--score_mode first needs a distinct first token per label (see label tokens above)")
     print(f"  label tokens {enc.label_tokens}; distinct first tokens: {enc.first_unique}; score mode: {mode}")
