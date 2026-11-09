@@ -418,7 +418,7 @@ jobs:
           name: centinela-gguf-${{ needs.train.outputs.tag }}
           path: ./gguf
 
-      - name: Rename assets with tag (skip F32/F16: exceed GitHub 2 GB release-asset limit)
+      - name: "Rename assets with tag (skip F32/F16: exceed GitHub 2 GB release-asset limit)"
         run: |
           TAG="${{ needs.train.outputs.tag }}"
           mkdir -p ./release
