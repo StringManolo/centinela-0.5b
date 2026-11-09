@@ -6,11 +6,11 @@ on:
       base_model:
         description: 'Base model'
         required: false
-        default: 'huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3'
+        default: 'Qwen/Qwen2.5-Coder-1.5B-Instruct'
       model_size:
         description: 'Tamaño para el nombre de la release'
         required: false
-        default: '0.5B'
+        default: '1.5B'
       techniques:
         description: 'Etiqueta de técnicas para el nombre de la release'
         required: false
@@ -24,9 +24,9 @@ on:
         required: false
         default: '6'
       time_budget_min:
-        description: 'Tope de entrenamiento (min). GH job timeout = 360 min.'
+        description: 'Tope de entrenamiento (min). GH job timeout = 350 min.'
         required: false
-        default: '340'
+        default: '300'
       safety_factor:
         description: 'Fracción del budget a planificar'
         required: false
@@ -34,7 +34,7 @@ on:
       sec_per_step:
         description: 'Segundos por paso (0 = auto desde metrics.json previo)'
         required: false
-        default: '0'
+        default: '50'
       lr:
         description: 'Learning rate'
         required: false
@@ -51,6 +51,10 @@ on:
         description: 'Mínimo de filas nuevas para lanzar la run'
         required: false
         default: '2'
+      lora_targets:
+        description: 'Módulos LoRA (comma-separated). Usa "all-linear" si la arquitectura no tiene q_proj/v_proj.'
+        required: false
+        default: 'q_proj,v_proj'
 
 permissions:
   contents: write
@@ -59,7 +63,7 @@ permissions:
 jobs:
   train:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 350
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       nothing_new: ${{ steps.filter.outputs.nothing_new }}
@@ -234,7 +238,7 @@ jobs:
             --train_templates 1
             --rslora
             --lora_r 32
-            --lora_targets q_proj,v_proj
+            --lora_targets "${{ inputs.lora_targets }}"
             --lora_dropout 0.05
             --lr_scheduler constant_with_warmup
             --grad_accum 4
