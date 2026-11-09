@@ -595,6 +595,9 @@ def parse_args(argv=None):
     ap.add_argument("--max_len", type=int, default=768)
     ap.add_argument("--permute_labels", action="store_true", help="null control: shuffle train labels")
     ap.add_argument("--skip_step0", action="store_true")
+    ap.add_argument("--skip_final_eval", action="store_true",
+                    help="skip the [6/6] final evaluation (metrics.json is still written with "
+                         "training stats: loss, steps, timings, diverged, stopped_by_time_budget)")
     # v5: continuous training
     ap.add_argument("--resume_adapter", default="",
                     help="path to a previous PEFT adapter folder (loads adapter weights before training/eval)")
@@ -605,6 +608,8 @@ def parse_args(argv=None):
         ap.error(f"--train_templates must be in 1..{len(TRAIN_TEMPLATES)}")
     if args.eval_only and not args.resume_adapter:
         ap.error("--eval_only requires --resume_adapter")
+    if args.eval_only and args.skip_final_eval:
+        ap.error("--eval_only and --skip_final_eval are contradictory (eval_only exists to run the eval)")
     return args
 
 
@@ -840,11 +845,17 @@ def main():
         print("  WARNING: training diverged (non-finite or exploding loss); the evaluation below is of a broken model")
 
     # 6. final evaluation + outputs
-    print("[6/6] Final evaluation")
-    t0 = time.time()
-    mf, scores_final = eval_point(model, enc, test_full, probe_rows, shift, args.train_templates, mode,
-                                  ci=True, keep_scores=True)
-    timings["eval_final_s"] = round(time.time() - t0, 2)
+    if args.skip_final_eval:
+        print("[6/6] Final evaluation SKIPPED (--skip_final_eval); "
+              "metrics.json will contain training stats only")
+        mf, scores_final = {}, []
+        timings["eval_final_s"] = 0
+    else:
+        print("[6/6] Final evaluation")
+        t0 = time.time()
+        mf, scores_final = eval_point(model, enc, test_full, probe_rows, shift, args.train_templates, mode,
+                                      ci=True, keep_scores=True)
+        timings["eval_final_s"] = round(time.time() - t0, 2)
     final_step = trainer.state.global_step if not args.eval_only else 0
     curve.append({"step": final_step, "epoch": round(final_step / steps_per_epoch, 2),
                   "train_loss": r4(float(np.mean(last_hist[-steps_per_epoch:]))) if last_hist else None,
