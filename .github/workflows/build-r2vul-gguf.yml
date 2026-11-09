@@ -4,13 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       zenodo_orpo_url:
-        description: 'URL directa de orpo.zip en Zenodo'
+        description: 'URL directa de orpo.zip en Zenodo (V3: mismo md5 que V2)'
         required: true
-        default: 'https://zenodo.org/records/15552613/files/orpo.zip?download=1'
-      zenodo_code_url:
-        description: 'URL directa de r2vul_code.zip en Zenodo'
-        required: true
-        default: 'https://zenodo.org/records/15552613/files/r2vul_code.zip?download=1'
+        default: 'https://zenodo.org/records/16741648/files/orpo.zip?download=1'
       base_model_id:
         description: 'Modelo base de Hugging Face'
         required: true
@@ -26,22 +22,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install merge dependencies (CPU)
         run: |
           pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
-          pip install --no-cache-dir transformers peft accelerate sentencepiece
+          pip install --no-cache-dir transformers peft accelerate sentencepiece huggingface_hub
 
       - name: Download base model from HF
         run: |
-          pip install huggingface_hub
           python -c "
           from huggingface_hub import snapshot_download
           snapshot_download(repo_id='${{ github.event.inputs.base_model_id }}', local_dir='./base_model')
@@ -52,8 +45,8 @@ jobs:
           curl -L -o orpo.zip "${{ github.event.inputs.zenodo_orpo_url }}"
           mkdir -p r2vul_adapters
           unzip -q orpo.zip -d r2vul_adapters
-          echo "=== Estructura de r2vul_adapters ==="
-          find r2vul_adapters -name 'adapter_config.json' -exec sh -c 'echo "--- $1 ---"; cat "$1"' _ {} \;
+          echo "=== adapter_config.json encontrados ==="
+          find r2vul_adapters -name 'adapter_config.json' -exec sh -c 'echo "--- $1 ---"; grep base_model_name_or_path "$1"' _ {} \;
 
       - name: Locate 1.5B adapter
         id: find_adapter
@@ -61,108 +54,106 @@ jobs:
           ADAPTER_DIR=""
           for cfg in $(find r2vul_adapters -name 'adapter_config.json'); do
             dir=$(dirname "$cfg")
-            if grep -qi '1\.5' "$cfg" 2>/dev/null || echo "$dir" | grep -qi '1[._]5'; then
+            if grep -q 'Qwen2.5-Coder-1.5B-Instruct' "$cfg" 2>/dev/null; then
               ADAPTER_DIR="$dir"
               break
             fi
           done
           if [ -z "$ADAPTER_DIR" ]; then
-            echo "AVISO: no encontré marcador '1.5' en ningún adapter_config.json. Usando el primero como fallback."
-            ADAPTER_DIR=$(find r2vul_adapters -name 'adapter_config.json' -exec dirname {} \; | head -n 1)
-          fi
-          if [ -z "$ADAPTER_DIR" ]; then
-            echo "ERROR: no hay adapter_config.json. Abortando."
+            echo "ERROR: no encontré adapter para Qwen2.5-Coder-1.5B-Instruct"
             exit 1
           fi
           echo "ADAPTER_DIR=$ADAPTER_DIR" >> $GITHUB_OUTPUT
           echo "Adaptador seleccionado: $ADAPTER_DIR"
-          cat "$ADAPTER_DIR/adapter_config.json"
 
-      - name: Download R2Vul code from Zenodo
+      - name: Merge adapter with base using peft
         run: |
-          curl -L -o r2vul_code.zip "${{ github.event.inputs.zenodo_code_url }}"
-          mkdir -p r2vul_repo
-          unzip -q r2vul_code.zip -d r2vul_repo
-          echo "=== Scripts encontrados ==="
-          find r2vul_repo -name '*.py' | head -30
+          cat > merge.py << 'PYEOF'
+          import os, torch
+          from transformers import AutoModelForCausalLM, AutoTokenizer
+          from peft import PeftModel
 
-      - name: Inspect merge.py interface
-        run: |
-          MERGE_SCRIPT=$(find r2vul_repo -name 'merge*.py' | head -n 1)
-          if [ -z "$MERGE_SCRIPT" ]; then
-            echo "ERROR: no encontré merge*.py en r2vul_code.zip."
-            find r2vul_repo -maxdepth 3 -type f | head -50
-            exit 1
-          fi
-          echo "MERGE_SCRIPT=$MERGE_SCRIPT"
-          echo "=== Primeras 80 líneas de $MERGE_SCRIPT ==="
-          head -80 "$MERGE_SCRIPT"
-          echo "=== --help ==="
-          python "$MERGE_SCRIPT" --help || true
+          adapter_path = os.environ["ADAPTER_DIR"]
+          print(f"Base: ./base_model")
+          print(f"Adapter: {adapter_path}")
 
-      - name: Merge adapter with base model
+          tokenizer = AutoTokenizer.from_pretrained("./base_model")
+          print("Loading base model (bf16)...")
+          model = AutoModelForCausalLM.from_pretrained(
+              "./base_model",
+              torch_dtype=torch.bfloat16,
+              device_map="cpu",
+          )
+          print("Loading adapter...")
+          model = PeftModel.from_pretrained(model, adapter_path)
+          print("Merging and unloading...")
+          model = model.merge_and_unload()
+          model.eval()
+          print("Saving merged model...")
+          model.save_pretrained("./merged_model", safe_serialization=True)
+          tokenizer.save_pretrained("./merged_model")
+          print("OK - merged model saved to ./merged_model")
+          PYEOF
+          python merge.py
+        env:
+          ADAPTER_DIR: ${{ steps.find_adapter.outputs.ADAPTER_DIR }}
+
+      - name: Verify merged model
         run: |
-          MERGE_SCRIPT=$(find r2vul_repo -name 'merge*.py' | head -n 1)
-          python "$MERGE_SCRIPT" \
-            --base_model ./base_model \
-            --adapter_path "${{ steps.find_adapter.outputs.ADAPTER_DIR }}" \
-            --output_path ./merged_model
-          echo "=== Contenido de merged_model ==="
           ls -lah ./merged_model
+          echo "=== config.json (head) ==="
+          head -20 ./merged_model/config.json
 
-      - name: Convert merged model to GGUF (F16) using llama.cpp Docker
+      - name: Clone and build llama.cpp
         run: |
-          mkdir -p gguf
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
-            ghcr.io/ggerganov/llama.cpp:full \
-            python /app/convert_hf_to_gguf.py \
-              /workspace/merged_model \
-              --outfile /workspace/gguf/r2vul-1.5b-f16.gguf \
-              --outtype f16
+          git clone --depth 1 https://github.com/ggerganov/llama.cpp.git
+          cd llama.cpp
+          cmake -B build -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF
+          cmake --build build --config Release -j$(nproc)
+          ls -lah build/bin/llama-quantize
+          echo "LLAMA_CPP_DIR=$PWD" >> $GITHUB_ENV
 
-      - name: Quantize to Q8_0
+      - name: Convert to GGUF F16
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
-            ghcr.io/ggerganov/llama.cpp:full \
-            /app/llama-quantize \
-              /workspace/gguf/r2vul-1.5b-f16.gguf \
-              /workspace/gguf/r2vul-1.5b-Q8_0.gguf Q8_0
+          cd $LLAMA_CPP_DIR
+          pip install --no-cache-dir -r requirements.txt
+          mkdir -p ../gguf
+          python convert_hf_to_gguf.py ../merged_model \
+            --outfile ../gguf/r2vul-1.5b-f16.gguf \
+            --outtype f16
 
-      - name: Quantize to Q4_K_M
+      - name: Quantize Q8_0
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
-            ghcr.io/ggerganov/llama.cpp:full \
-            /app/llama-quantize \
-              /workspace/gguf/r2vul-1.5b-f16.gguf \
-              /workspace/gguf/r2vul-1.5b-Q4_K_M.gguf Q4_K_M
+          cd $LLAMA_CPP_DIR
+          ./build/bin/llama-quantize ../gguf/r2vul-1.5b-f16.gguf ../gguf/r2vul-1.5b-Q8_0.gguf Q8_0
 
-      - name: Quantize to Q3_K_M
+      - name: Quantize Q4_K_M
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
-            ghcr.io/ggerganov/llama.cpp:full \
-            /app/llama-quantize \
-              /workspace/gguf/r2vul-1.5b-f16.gguf \
-              /workspace/gguf/r2vul-1.5b-Q3_K_M.gguf Q3_K_M
+          cd $LLAMA_CPP_DIR
+          ./build/bin/llama-quantize ../gguf/r2vul-1.5b-f16.gguf ../gguf/r2vul-1.5b-Q4_K_M.gguf Q4_K_M
 
-      - name: Quantize to Q2_K
+      - name: Quantize Q3_K_M
         run: |
-          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
-            ghcr.io/ggerganov/llama.cpp:full \
-            /app/llama-quantize \
-              /workspace/gguf/r2vul-1.5b-f16.gguf \
-              /workspace/gguf/r2vul-1.5b-Q2_K.gguf Q2_K
+          cd $LLAMA_CPP_DIR
+          ./build/bin/llama-quantize ../gguf/r2vul-1.5b-f16.gguf ../gguf/r2vul-1.5b-Q3_K_M.gguf Q3_K_M
 
-      - name: List GGUF files
+      - name: Quantize Q2_K
+        run: |
+          cd $LLAMA_CPP_DIR
+          ./build/bin/llama-quantize ../gguf/r2vul-1.5b-f16.gguf ../gguf/r2vul-1.5b-Q2_K.gguf Q2_K
+
+      - name: List GGUF outputs
         run: ls -lh gguf/
 
-      - name: Create GitHub Release and upload GGUF
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
           name: "R2Vul 1.5B GGUF (${{ github.event.inputs.release_tag }})"
           body: |
-            Modelo R2Vul 1.5B fusionado desde el adaptador ORPO de Zenodo y convertido a GGUF.
+            R2Vul 1.5B (adaptador ORPO fusionado con Qwen2.5-Coder-1.5B-Instruct).
             - Base: ${{ github.event.inputs.base_model_id }}
+            - Fuente adaptador: ${{ github.event.inputs.zenodo_orpo_url }}
             - Q8_0: ~1.6 GB
             - Q4_K_M: ~1.0 GB
             - Q3_K_M: ~0.85 GB
