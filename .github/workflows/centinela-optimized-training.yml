@@ -418,11 +418,11 @@ jobs:
           name: centinela-gguf-${{ needs.train.outputs.tag }}
           path: ./gguf
 
-      - name: Rename assets with tag
+      - name: Rename assets with tag (skip F32/F16: exceed GitHub 2 GB release-asset limit)
         run: |
           TAG="${{ needs.train.outputs.tag }}"
           mkdir -p ./release
-          for q in F32 F16 Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
+          for q in Q8_0 Q6_K Q4_K_M Q3_K_M Q2_K; do
             cp "./gguf/${TAG}-${q}.gguf" "./release/${TAG}-${q}.gguf"
           done
           if [ -f ./downloaded/lora_adapter/adapter_config.json ]; then
@@ -460,7 +460,7 @@ jobs:
             - Total rows trained (cumulative): `${{ needs.train.outputs.total_rows }}`
             - Resumed from: `${{ steps.resume.outputs.value || 'fresh start' }}`
             - Diverged: `${{ needs.train.outputs.diverged }}` — Stopped by time: `${{ needs.train.outputs.stopped_by_time }}`
-            - Quantizations: F32, F16, Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K
+            - Quantizations: Q8_0, Q6_K, Q4_K_M, Q3_K_M, Q2_K (F32/F16 superan el límite de 2 GB por asset de GitHub; disponibles como workflow artifacts del run)
             - LoRA tensors: `${{ needs.train.outputs.tag }}-lora.safetensors`
           files: |
             ./release/*.gguf
