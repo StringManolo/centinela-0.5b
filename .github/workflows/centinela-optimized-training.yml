@@ -245,6 +245,7 @@ jobs:
             --train_probe_n 20
             --skip_step0
             --eval_every 1000000
+            --skip_final_eval
           )
           if [ -n "${{ steps.resume.outputs.value }}" ]; then
             ARGS+=(--resume_adapter ./prev)
